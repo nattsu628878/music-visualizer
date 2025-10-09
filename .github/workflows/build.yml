@@ -28,6 +28,15 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Rust target for macOS ARM
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin
+
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-20.04'
         run: |
@@ -49,12 +58,21 @@ jobs:
         if: matrix.platform == 'ubuntu-20.04'
         run: npm run tauri build
 
-      - name: Upload artifacts (macOS ARM)
+      - name: Upload artifacts (macOS ARM - DMG)
         if: matrix.platform == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
           name: macos-arm64-dmg
           path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+      - name: Upload artifacts (macOS ARM - App Bundle)
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-app
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+          if-no-files-found: warn
 
       - name: Upload artifacts (Windows EXE)
         if: matrix.platform == 'windows-latest'
