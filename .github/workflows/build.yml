@@ -33,9 +33,11 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Install Rust target for macOS ARM
+      - name: Install Rust targets for macOS
         if: matrix.platform == 'macos-latest'
-        run: rustup target add aarch64-apple-darwin
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
 
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-20.04'
@@ -46,9 +48,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build the app (macOS ARM)
+      - name: Build the app (macOS Universal)
         if: matrix.platform == 'macos-latest'
-        run: npm run tauri build -- --target aarch64-apple-darwin
+        run: npm run tauri build -- --target universal-apple-darwin
 
       - name: Build the app (Windows)
         if: matrix.platform == 'windows-latest'
@@ -58,20 +60,20 @@ jobs:
         if: matrix.platform == 'ubuntu-20.04'
         run: npm run tauri build
 
-      - name: Upload artifacts (macOS ARM - DMG)
+      - name: Upload artifacts (macOS Universal - DMG)
         if: matrix.platform == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: macos-arm64-dmg
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          name: macos-universal-dmg
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: warn
 
-      - name: Upload artifacts (macOS ARM - App Bundle)
+      - name: Upload artifacts (macOS Universal - App Bundle)
         if: matrix.platform == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: macos-arm64-app
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+          name: macos-universal-app
+          path: src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
           if-no-files-found: warn
 
       - name: Upload artifacts (Windows EXE)
