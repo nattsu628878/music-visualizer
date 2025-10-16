@@ -30,21 +30,14 @@
   let settings = $state({
     exportFormat: 'mp4',
     convertAfterRecording: true,
-    minFreq: 20,
-    maxFreq: 14400,
+    color: '#ffffff',
     backgroundColor: '#000000',
-    barColor: '#ffffff',
-    fftSize: 2048,
-    barCount: 64,
-    spectrumStyle: 'normal',
-    barWidthPercent: 90,
-    amplitudeScale: 100
+    style: 'line',
+    amplitude: 100
   });
 
   let showSettings = $state(false);
-  let freqRangeText = $derived(`${settings.minFreq}Hz - ${settings.maxFreq}Hz`);
-  let barWidthText = $derived(`${settings.barWidthPercent}%`);
-  let amplitudeScaleText = $derived(`${settings.amplitudeScale}%`);
+  let waveAmplitudeText = $derived(`${settings.amplitude}%`);
 
   onMount(async () => {
     if (canvas) {
@@ -70,24 +63,6 @@
     }
   }
 
-  function updateMinFreq(event: Event) {
-    const value = parseInt((event.target as HTMLInputElement).value);
-    if (value >= settings.maxFreq) {
-      settings.minFreq = settings.maxFreq - 10;
-    } else {
-      settings.minFreq = value;
-    }
-  }
-
-  function updateMaxFreq(event: Event) {
-    const value = parseInt((event.target as HTMLInputElement).value);
-    if (value <= settings.minFreq) {
-      settings.maxFreq = settings.minFreq + 10;
-    } else {
-      settings.maxFreq = value;
-    }
-  }
-
   async function startPreview() {
     if (!audioFile) {
       alert('Please select a WAV file.');
@@ -97,11 +72,7 @@
     isPreviewing = true;
     audioContext = new AudioContext();
     analyser = audioContext.createAnalyser();
-    analyser.fftSize = settings.fftSize;
-
-    const nyquist = audioContext.sampleRate / 2;
-    const minIndex = Math.floor(settings.minFreq * analyser.frequencyBinCount / nyquist);
-    const maxIndex = Math.floor(settings.maxFreq * analyser.frequencyBinCount / nyquist);
+    analyser.fftSize = 2048;
 
     const audioBuffer = await audioFile!.arrayBuffer();
     const audioSource = await audioContext.decodeAudioData(audioBuffer);
@@ -118,7 +89,7 @@
 
     function draw() {
       if (!analyser || !ctx || !isPreviewing) return;
-      drawSpectrum(minIndex, maxIndex);
+      drawWaveform();
       previewAnimationId = requestAnimationFrame(draw);
     }
 
@@ -132,7 +103,11 @@
       previewAnimationId = null;
     }
     if (previewSource) {
-      previewSource.stop();
+      try {
+        previewSource.stop();
+      } catch (e) {
+        // Already stopped
+      }
       previewSource.disconnect();
       previewSource = null;
     }
@@ -140,7 +115,7 @@
       analyser.disconnect();
       analyser = null;
     }
-    if (audioContext) {
+    if (audioContext && audioContext.state !== 'closed') {
       audioContext.close();
       audioContext = null;
     }
@@ -156,11 +131,7 @@
     processingProgress = 0;
     audioContext = new AudioContext();
     analyser = audioContext.createAnalyser();
-    analyser.fftSize = settings.fftSize;
-
-    const nyquist = audioContext.sampleRate / 2;
-    const minIndex = Math.floor(settings.minFreq * analyser.frequencyBinCount / nyquist);
-    const maxIndex = Math.floor(settings.maxFreq * analyser.frequencyBinCount / nyquist);
+    analyser.fftSize = 2048;
 
     const audioBuffer = await audioFile!.arrayBuffer();
     const audioSource = await audioContext.decodeAudioData(audioBuffer);
@@ -211,7 +182,7 @@
 
     function draw() {
       if (!analyser || !ctx) return;
-      drawSpectrum(minIndex, maxIndex);
+      drawWaveform();
       
       // Update progress
       if (audioContext && audioDuration > 0) {
@@ -238,7 +209,7 @@
     try {
       const blob = new Blob(chunks);
       // Always use .webm extension as MediaRecorder outputs WebM format
-      const defaultFileName = `spectrum-visualization.webm`;
+      const defaultFileName = `waveform-visualization.webm`;
       
       const filePath = await save({
         filters: [
@@ -290,128 +261,42 @@
     }
   }
 
-  function drawSpectrum(minIndex: number, maxIndex: number) {
+  function drawWaveform() {
     if (!analyser || !ctx) return;
 
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(dataArray);
+    const timeData = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(timeData);
 
     ctx.fillStyle = settings.backgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const frequencyRange = maxIndex - minIndex;
-    const samplesPerBar = Math.floor(frequencyRange / settings.barCount);
-    
-    ctx.fillStyle = settings.barColor;
-    ctx.strokeStyle = settings.barColor;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = settings.color;
+    ctx.beginPath();
 
-    if (settings.spectrumStyle === 'circular') {
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
-      const radius = Math.min(centerX, centerY) * 0.8;
+    const sliceWidth = canvas.width / timeData.length;
+    let x = 0;
+    const centerY = canvas.height / 2;
 
-      for(let i = 0; i < settings.barCount; i++) {
-        let sum = 0;
-        const startIndex = minIndex + (i * samplesPerBar);
-        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
-        
-        for(let j = startIndex; j < endIndex; j++) {
-          sum += dataArray[j];
-        }
-        
-        const average = sum / samplesPerBar;
-        const barHeight = (average / 255) * (radius * 0.5) * (settings.amplitudeScale / 100);
-        const angle = (i / settings.barCount) * Math.PI * 2;
-        
-        const startX = centerX + (radius - barHeight) * Math.cos(angle);
-        const startY = centerY + (radius - barHeight) * Math.sin(angle);
-        const endX = centerX + radius * Math.cos(angle);
-        const endY = centerY + radius * Math.sin(angle);
-        
-        ctx.lineWidth = (2 * Math.PI * radius / settings.barCount) * (settings.barWidthPercent / 100);
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
-      }
-    } else if (settings.spectrumStyle === 'liner') {
-      ctx.beginPath();
-      ctx.lineWidth = 2;
-      let prevHeight = 0;
+    for (let i = 0; i < timeData.length; i++) {
+      const v = timeData[i] / 128.0;
+      const y = centerY + (v - 1) * centerY * (settings.amplitude / 100);
       
-      for(let i = 0; i < settings.barCount; i++) {
-        let sum = 0;
-        const startIndex = minIndex + (i * samplesPerBar);
-        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
-        
-        for(let j = startIndex; j < endIndex; j++) {
-          sum += dataArray[j];
-        }
-        
-        const average = sum / samplesPerBar;
-        const barHeight = (average / 255) * canvas.height * (settings.amplitudeScale / 100);
-        const x = (i / settings.barCount) * canvas.width;
-        
-        if (i === 0) {
-          ctx.moveTo(x, canvas.height - barHeight);
-        } else {
-          const prevX = ((i - 1) / settings.barCount) * canvas.width;
-          const prevY = canvas.height - prevHeight;
-          const cpX = (x + prevX) / 2;
-          ctx.quadraticCurveTo(prevX, prevY, cpX, (prevY + (canvas.height - barHeight)) / 2);
-        }
-        
-        prevHeight = barHeight;
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
       }
-      
-      ctx.lineTo(canvas.width, canvas.height - prevHeight);
+      x += sliceWidth;
+    }
+
+    if (settings.style === 'fill') {
+      ctx.lineTo(canvas.width, canvas.height);
+      ctx.lineTo(0, canvas.height);
+      ctx.fillStyle = settings.color;
+      ctx.fill();
+    } else {
       ctx.stroke();
-    } else if (settings.spectrumStyle === 'normal') {
-      for(let i = 0; i < settings.barCount; i++) {
-        let sum = 0;
-        const startIndex = minIndex + (i * samplesPerBar);
-        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
-        
-        for(let j = startIndex; j < endIndex; j++) {
-          sum += dataArray[j];
-        }
-        
-        const average = sum / samplesPerBar;
-        const totalBarWidth = canvas.width / settings.barCount;
-        const actualBarWidth = totalBarWidth * (settings.barWidthPercent / 100);
-        const barStartX = i * totalBarWidth + (totalBarWidth - actualBarWidth) / 2;
-        
-        const barHeight = (average / 255) * canvas.height * (settings.amplitudeScale / 100);
-        ctx.fillRect(
-          barStartX,
-          canvas.height - barHeight,
-          actualBarWidth,
-          barHeight
-        );
-      }
-    } else if (settings.spectrumStyle === 'center') {
-      for(let i = 0; i < settings.barCount; i++) {
-        let sum = 0;
-        const startIndex = minIndex + (i * samplesPerBar);
-        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
-        
-        for(let j = startIndex; j < endIndex; j++) {
-          sum += dataArray[j];
-        }
-        
-        const average = sum / samplesPerBar;
-        const totalBarWidth = canvas.width / settings.barCount;
-        const actualBarWidth = totalBarWidth * (settings.barWidthPercent / 100);
-        const barStartX = i * totalBarWidth + (totalBarWidth - actualBarWidth) / 2;
-        
-        const barHeight = (average / 255) * (canvas.height / 2) * (settings.amplitudeScale / 100);
-        ctx.fillRect(
-          barStartX,
-          canvas.height/2 - barHeight,
-          actualBarWidth,
-          barHeight * 2
-        );
-      }
     }
   }
 </script>
@@ -423,7 +308,7 @@
 </svelte:head>
 
 <div class="container">
-  <h1>Spectrum Visualizer</h1>
+  <h1>Waveform Visualizer</h1>
   
   <div class="input-section">
     <input type="file" id="audioInput" accept=".wav" onchange={handleFileChange}>
@@ -449,7 +334,7 @@
   </div>
 
   <div class="preview">
-    <h3>Spectrum Visualization</h3>
+    <h3>Waveform Visualization</h3>
     <canvas bind:this={canvas} id="canvas"></canvas>
     {#if isProcessing || isConverting}
       <div class="progress-container">
@@ -497,76 +382,29 @@
       {/if}
     </div>
 
-    <!-- Spectrum settings panel -->
+    <!-- Waveform settings panel -->
     <div class="settings">
-      <h3>Spectrum Settings</h3>
+      <h3>Waveform Settings</h3>
       <div>
-        <label for="fftSize">FFT Size:</label>
-        <select id="fftSize" bind:value={settings.fftSize}>
-          <option value={512}>512</option>
-          <option value={1024}>1024</option>
-          <option value={2048}>2048</option>
-          <option value={4096}>4096</option>
-        </select>
+        <label for="waveColor">Wave Color:</label>
+        <input type="color" id="waveColor" bind:value={settings.color}>
       </div>
-      <div>Frequency Range: <span>{freqRangeText}</span></div>
-      <div class="range-slider">
-        <input 
-          type="range" 
-          id="minFreqRange" 
-          min="0" 
-          max="24000" 
-          value={settings.minFreq}
-          step="10"
-          oninput={updateMinFreq}
-        >
-        <input 
-          type="range" 
-          id="maxFreqRange" 
-          min="0" 
-          max="24000" 
-          value={settings.maxFreq}
-          step="10"
-          oninput={updateMaxFreq}
-        >
+      <div>
+        <label for="waveBackground">Background Color:</label>
+        <input type="color" id="waveBackground" bind:value={settings.backgroundColor}>
       </div>
       <br>
       <div>
-        <label for="backgroundColor">Background Color:</label>
-        <input type="color" id="backgroundColor" bind:value={settings.backgroundColor}>
-      </div>
-      <div>
-        <label for="barColor">Bar Color:</label>
-        <input type="color" id="barColor" bind:value={settings.barColor}>
-      </div>
-      <br>
-      <div>
-        <label for="barCount">Number of Bars:</label>
-        <span class="range-slider">
-          <input type="number" id="barCount" bind:value={settings.barCount} min="16" max="256">
-        </span>
-        <span class="note" style="opacity: 0.6">(Recommended: 16-256)</span>
-      </div>
-      <div>
-        <label for="barWidth">Bar Width: <span>{barWidthText}</span></label>
-        <div class="range-slider">
-          <input type="range" id="barWidth" min="10" max="100" bind:value={settings.barWidthPercent} step="5">
-        </div>
-      </div>
-      <br>
-      <div>
-        <label for="spectrumStyle">Display Style:</label>
-        <select id="spectrumStyle" bind:value={settings.spectrumStyle}>
-          <option value="normal">Normal</option>
-          <option value="center">Center (Up/Down)</option>
-          <option value="circular">Circular</option>
-          <option value="liner">Line</option>
+        <label for="waveStyle">Display Style:</label>
+        <select id="waveStyle" bind:value={settings.style}>
+          <option value="line">Line</option>
+          <option value="fill">Fill</option>
         </select>
       </div>
       <div>
-        <label for="amplitudeScale">Amplitude Scale: <span>{amplitudeScaleText}</span></label>
+        <label for="waveAmplitude">Amplitude Scale: <span>{waveAmplitudeText}</span></label>
         <div class="range-slider">
-          <input type="range" id="amplitudeScale" min="10" max="200" bind:value={settings.amplitudeScale} step="10">
+          <input type="range" id="waveAmplitude" min="10" max="200" bind:value={settings.amplitude} step="10">
         </div>
       </div>
     </div>
@@ -707,10 +545,6 @@
     border: 2px solid #8b6f47;
   }
 
-  .range-slider input[type="range"]:nth-child(1) {
-    z-index: 2;
-  }
-
   .settings {
     background: #3e3429;
     padding: 15px;
@@ -739,7 +573,6 @@
     text-align: center;
   }
 
-  input[type="number"],
   select {
     font-family: "DotGothic16", sans-serif;
     padding: 6px 10px;
@@ -749,7 +582,6 @@
     border-radius: 4px;
   }
 
-  input[type="number"]:focus,
   select:focus {
     outline: none;
     border-color: #d4a574;

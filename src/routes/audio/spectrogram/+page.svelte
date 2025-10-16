@@ -182,7 +182,11 @@
       previewIntervalId = null;
     }
     if (previewSource) {
-      previewSource.stop();
+      try {
+        previewSource.stop();
+      } catch (e) {
+        // Already stopped
+      }
       previewSource.disconnect();
       previewSource = null;
     }
@@ -190,7 +194,7 @@
       analyser.disconnect();
       analyser = null;
     }
-    if (audioContext) {
+    if (audioContext && audioContext.state !== 'closed') {
       audioContext.close();
       audioContext = null;
     }
