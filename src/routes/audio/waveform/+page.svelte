@@ -3,6 +3,7 @@
   import { save } from '@tauri-apps/plugin-dialog';
   import { writeFile } from '@tauri-apps/plugin-fs';
   import { invoke } from '@tauri-apps/api/core';
+  import '../../../lib/styles/common.css';
 
   // Audio processing variables
   let audioContext: AudioContext | null = null;
@@ -311,23 +312,30 @@
   <h1>Waveform Visualizer</h1>
   
   <div class="input-section">
-    <input type="file" id="audioInput" accept=".wav" onchange={handleFileChange}>
+    <input
+      type="file"
+      accept=".wav"
+      onchange={handleFileChange}
+      disabled={isProcessing || isPreviewing}
+    />
+    
     {#if !isPreviewing}
       <button onclick={startPreview} disabled={isProcessing || !audioFile}>
         Preview
       </button>
     {:else}
-      <button onclick={stopPreview} class="stop-button">
+      <button class="stop-button" onclick={stopPreview}>
         Stop Preview
       </button>
     {/if}
+
     <button onclick={processAudio} disabled={isProcessing || isPreviewing || isConverting || !audioFile}>
       {#if isProcessing}
         Processing...
       {:else if isConverting}
         Converting...
       {:else}
-        Start Processing
+        Start Processing & Record
       {/if}
     </button>
     <a href="/" class="back-button">Back to Home</a>
@@ -335,26 +343,78 @@
 
   <div class="preview">
     <h3>Waveform Visualization</h3>
-    <canvas bind:this={canvas} id="canvas"></canvas>
-    {#if isProcessing || isConverting}
+    <div class="canvas-container">
+      <canvas bind:this={canvas} width="1920" height="1080"></canvas>
+    </div>
+    
+    {#if isProcessing && processingProgress > 0}
       <div class="progress-container">
         <div class="progress-bar">
           <div class="progress-fill" style="width: {processingProgress}%"></div>
         </div>
-        <div class="progress-text">
-          {#if isProcessing}
-            Recording: {Math.round(processingProgress)}%
-          {:else if isConverting}
-            Converting to {settings.exportFormat.toUpperCase()}...
-          {/if}
-        </div>
+        <span class="progress-text">{Math.round(processingProgress)}%</span>
+      </div>
+    {/if}
+
+    {#if isConverting}
+      <div class="converting-message">
+        <p>Converting to {settings.exportFormat.toUpperCase()}...</p>
       </div>
     {/if}
   </div>
 
-  {#if showSettings}
-    <!-- Export format settings -->
-    <div class="settings">
+  {#if audioFile}
+    <div class="settings-grid">
+      <!-- Display Settings -->
+      <div class="settings">
+        <h3>Display Settings</h3>
+        
+        <div class="setting-group">
+          <label>
+            Display Style:
+            <select bind:value={settings.style}>
+              <option value="line">Line</option>
+              <option value="fill">Fill</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Amplitude Scale: {waveAmplitudeText}
+            <input
+              type="range"
+              min="10"
+              max="200"
+              bind:value={settings.amplitude}
+              step="10"
+            />
+          </label>
+        </div>
+      </div>
+
+      <!-- Color Settings -->
+      <div class="settings">
+        <h3>Color Settings</h3>
+        
+        <div class="setting-group">
+          <label>
+            Background Color:
+            <input type="color" bind:value={settings.backgroundColor} />
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Wave Color:
+            <input type="color" bind:value={settings.color} />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Settings (Full Width) -->
+    <div class="settings settings-full">
       <h3>Export Settings</h3>
       <div>
         <label for="exportFormat">Output Format:</label>
@@ -381,33 +441,6 @@
         </div>
       {/if}
     </div>
-
-    <!-- Waveform settings panel -->
-    <div class="settings">
-      <h3>Waveform Settings</h3>
-      <div>
-        <label for="waveColor">Wave Color:</label>
-        <input type="color" id="waveColor" bind:value={settings.color}>
-      </div>
-      <div>
-        <label for="waveBackground">Background Color:</label>
-        <input type="color" id="waveBackground" bind:value={settings.backgroundColor}>
-      </div>
-      <br>
-      <div>
-        <label for="waveStyle">Display Style:</label>
-        <select id="waveStyle" bind:value={settings.style}>
-          <option value="line">Line</option>
-          <option value="fill">Fill</option>
-        </select>
-      </div>
-      <div>
-        <label for="waveAmplitude">Amplitude Scale: <span>{waveAmplitudeText}</span></label>
-        <div class="range-slider">
-          <input type="range" id="waveAmplitude" min="10" max="200" bind:value={settings.amplitude} step="10">
-        </div>
-      </div>
-    </div>
   {/if}
 </div>
 
@@ -423,6 +456,7 @@
   .container {
     max-width: 1200px;
     margin: 0 auto;
+    padding: 20px;
   }
 
   h1 {
@@ -460,11 +494,90 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   }
 
-  canvas {
+  .preview {
+    background: #3e3429;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #6b4423;
+  }
+
+  .preview h3 {
+    margin-bottom: 10px;
+    color: #d4a574;
+    text-align: center;
+  }
+
+  /* Settings Grid Layout */
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+  }
+
+  .settings {
+    background: #3e3429;
+    padding: 20px;
+    border-radius: 8px;
+    transition: opacity 0.3s ease;
+    border: 1px solid #6b4423;
+    height: fit-content;
+  }
+
+  .settings-full {
+    grid-column: 1 / -1;
+  }
+
+  .settings h3 {
+    margin: 0 0 15px 0;
+    padding-bottom: 10px;
+    color: #d4a574;
+    font-family: "DotGothic16", sans-serif;
+    border-bottom: 1px solid #6b4423;
+  }
+
+  .setting-group {
+    margin-bottom: 18px;
+  }
+
+  .setting-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .setting-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #e8d5c4;
+    font-size: 0.95em;
+  }
+
+  input[type="color"],
+  input[type="number"],
+  input[type="range"] {
+    padding: 8px;
+    background: #2a2419;
+    border: 2px solid #6b4423;
+    border-radius: 4px;
+    color: #f5e6d3;
+    cursor: pointer;
+  }
+
+  input[type="range"] {
     width: 100%;
-    max-height: 600px;
-    background-color: #2a2419;
+  }
+
+  .canvas-container {
     margin: 20px 0;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    background-color: #2a2419;
     border-radius: 8px;
     border: 2px solid #6b4423;
   }
@@ -503,75 +616,6 @@
     background-color: #a73d3a;
   }
 
-  .range-slider {
-    margin-top: 10px;
-    position: relative;
-    width: 200px;
-    height: 20px;
-  }
-
-  .range-slider input[type="range"] {
-    position: absolute;
-    width: 100%;
-    pointer-events: none;
-    appearance: none;
-    height: 4px;
-    background: #6b4423;
-    outline: none;
-    border-radius: 2px;
-  }
-
-  .range-slider input[type="range"]::-webkit-slider-thumb {
-    pointer-events: auto;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #d4a574;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    border: 2px solid #8b6f47;
-  }
-
-  .range-slider input[type="range"]::-moz-range-thumb {
-    pointer-events: auto;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #d4a574;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    border: 2px solid #8b6f47;
-  }
-
-  .settings {
-    background: #3e3429;
-    padding: 15px;
-    border-radius: 8px;
-    transition: opacity 0.3s ease;
-    margin-bottom: 10px;
-    border: 1px solid #6b4423;
-  }
-
-  .settings h3 {
-    margin-bottom: 10px;
-    color: #d4a574;
-    font-family: "DotGothic16", sans-serif;
-  }
-
-  .preview {
-    background: #3e3429;
-    padding: 15px;
-    border-radius: 8px;
-    border: 1px solid #6b4423;
-  }
-
-  .preview h3 {
-    margin-bottom: 10px;
-    color: #d4a574;
-    text-align: center;
-  }
 
   select {
     font-family: "DotGothic16", sans-serif;
@@ -654,6 +698,44 @@
     font-size: 1.1em;
     color: #d4a574;
     font-weight: bold;
+  }
+
+  .converting-message {
+    margin-top: 15px;
+    padding: 15px;
+    background: #8b6f47;
+    border-radius: 8px;
+    text-align: center;
+  }
+
+  .converting-message p {
+    margin: 0;
+    color: #f5e6d3;
+  }
+
+  /* Responsive Design */
+  @media (max-width: 1024px) {
+    .settings-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .container {
+      padding: 10px;
+    }
+
+    .settings {
+      padding: 15px;
+    }
+
+    .settings h3 {
+      font-size: 1.1em;
+    }
+
+    .setting-group {
+      margin-bottom: 15px;
+    }
   }
 </style>
 

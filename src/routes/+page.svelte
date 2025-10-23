@@ -14,48 +14,34 @@
     <p class="subtitle">Comprehensive Audio & MIDI Visualization Platform</p>
   </header>
 
-  <!-- Unified Visualizer Section (Special Feature) -->
+  <!-- Multi-View Composer Section (Special Feature) -->
   <section class="category-section featured">
     <div class="category-header">
       <span class="category-icon">🎬</span>
-      <h2>Unified Visualizer</h2>
+      <h2>Multi-View Composer</h2>
       <span class="category-badge special">ALL-IN-ONE</span>
     </div>
     
-    <div class="card-grid">
-      <div class="card coming-soon featured-card">
-        <div class="card-icon">🎭</div>
-        <h3>Multi-View Composer</h3>
-        <p class="card-subtitle">Composite Display</p>
-        <p class="description">
-          Combine multiple visualizations in a single screen.
-          Create custom layouts with spectrum, waveform, piano roll, and more simultaneously.
-          Perfect for professional video production.
-        </p>
-        <span class="badge featured">Coming Soon</span>
-      </div>
-
-      <div class="card coming-soon featured-card">
-        <div class="card-icon">🎨</div>
-        <h3>Template Studio</h3>
-        <p class="card-subtitle">Preset Layouts</p>
-        <p class="description">
-          Pre-designed multi-view templates for quick creation.
-          Save and share your custom visualization layouts.
-        </p>
-        <span class="badge featured">Coming Soon</span>
-      </div>
-
-      <div class="card coming-soon featured-card">
-        <div class="card-icon">🎞️</div>
-        <h3>Dashboard Recorder</h3>
-        <p class="card-subtitle">Multi-Panel Export</p>
-        <p class="description">
-          Record multiple visualizations simultaneously.
-          Create professional music videos with comprehensive audio analysis.
-        </p>
-        <span class="badge featured">Coming Soon</span>
-      </div>
+    <div class="composer-card">
+      <a href="/multi-view-composer" class="composer-link">
+        <div class="composer-icon">🎼</div>
+        <div class="composer-content">
+          <h3>Multi-View Composer</h3>
+          <p class="composer-subtitle">Professional Composite Display</p>
+          <p class="composer-description">
+            Combine multiple visualizations in a single screen with drag-and-drop interface.
+            Create custom layouts with spectrum, waveform, piano roll, and more simultaneously.
+            Perfect for professional video production and music analysis.
+          </p>
+          <div class="composer-features">
+            <span class="feature-tag">🎨 Drag & Drop</span>
+            <span class="feature-tag">📊 Multi-Layer</span>
+            <span class="feature-tag">🎬 Professional</span>
+            <span class="feature-tag">⚡ Real-time</span>
+          </div>
+        </div>
+        <div class="composer-arrow">→</div>
+      </a>
     </div>
   </section>
   
@@ -538,20 +524,106 @@
     animation: pulse 2s ease-in-out infinite;
   }
 
-  .badge.featured {
-    background: linear-gradient(135deg, #ffd700 0%, #d4a574 100%);
-    color: #2a2419;
-    font-weight: bold;
-    animation: pulse 2s ease-in-out infinite;
+
+  /* Composer Card Styles */
+  .composer-card {
+    margin: 0;
   }
 
-  .featured-card {
-    border: 2px solid #d4a574;
+  .composer-link {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    padding: 40px;
+    background: linear-gradient(135deg, #2a2419 0%, #3e3429 100%);
+    border: 3px solid #d4a574;
+    border-radius: 16px;
+    text-decoration: none;
+    color: #f5e6d3;
+    transition: all 0.4s ease;
+    box-shadow: 0 6px 20px rgba(212, 165, 116, 0.2);
+    position: relative;
+    overflow: hidden;
   }
 
-  .featured-card:hover {
+  .composer-link::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.6s ease;
+  }
+
+  .composer-link:hover::before {
+    left: 100%;
+  }
+
+  .composer-link:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 30px rgba(212, 165, 116, 0.4);
     border-color: #ffd700;
-    box-shadow: 0 8px 20px rgba(255, 215, 0, 0.3);
+  }
+
+  .composer-icon {
+    font-size: 4em;
+    flex-shrink: 0;
+    text-align: center;
+    min-width: 100px;
+  }
+
+  .composer-content {
+    flex: 1;
+  }
+
+  .composer-content h3 {
+    margin: 0 0 10px 0;
+    color: #d4a574;
+    font-size: 2.2em;
+    font-weight: bold;
+  }
+
+  .composer-subtitle {
+    margin: 0 0 15px 0;
+    color: #b39674;
+    font-size: 1.1em;
+    font-weight: 500;
+  }
+
+  .composer-description {
+    margin: 0 0 20px 0;
+    color: #c4a57b;
+    font-size: 1.05em;
+    line-height: 1.6;
+  }
+
+  .composer-features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .feature-tag {
+    background: linear-gradient(135deg, #8b6f47, #d4a574);
+    color: #2a2419;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .composer-arrow {
+    font-size: 2.5em;
+    color: #d4a574;
+    flex-shrink: 0;
+    transition: transform 0.3s ease;
+  }
+
+  .composer-link:hover .composer-arrow {
+    transform: translateX(10px);
   }
 
   @keyframes pulse {
@@ -608,6 +680,35 @@
 
     .card {
       min-height: 180px;
+    }
+
+    /* Composer responsive */
+    .composer-link {
+      flex-direction: column;
+      text-align: center;
+      gap: 20px;
+      padding: 30px 20px;
+    }
+
+    .composer-icon {
+      font-size: 3em;
+      min-width: auto;
+    }
+
+    .composer-content h3 {
+      font-size: 1.8em;
+    }
+
+    .composer-description {
+      font-size: 1em;
+    }
+
+    .composer-features {
+      justify-content: center;
+    }
+
+    .composer-arrow {
+      font-size: 2em;
     }
   }
 

@@ -5,6 +5,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Midi } from '@tonejs/midi';
   import * as Tone from 'tone';
+  import '../../../lib/styles/common.css';
 
   // Canvas and rendering
   let canvas: HTMLCanvasElement;

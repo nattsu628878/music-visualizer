@@ -5,6 +5,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Midi } from '@tonejs/midi';
   import * as Tone from 'tone';
+  import '../../../lib/styles/common.css';
 
   // Canvas and rendering
   let canvas: HTMLCanvasElement;
@@ -928,6 +929,7 @@
   }
 
   input[type="color"],
+  input[type="number"],
   input[type="range"] {
     padding: 8px;
     background: #2a2419;
@@ -939,6 +941,25 @@
 
   input[type="range"] {
     width: 100%;
+  }
+
+  .range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .range-inputs input {
+    width: 100%;
+  }
+
+  .note-hint {
+    display: block;
+    margin-top: 5px;
+    font-size: 0.85em;
+    color: #b39674;
+    font-style: italic;
   }
 
   input[type="checkbox"] {
@@ -1063,7 +1084,7 @@
 
   .canvas-container {
     margin: 20px 0;
-    background: #fff;
+    background: #000;
     border-radius: 8px;
     overflow: hidden;
   }

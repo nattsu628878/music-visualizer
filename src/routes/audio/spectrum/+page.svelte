@@ -3,6 +3,7 @@
   import { save } from '@tauri-apps/plugin-dialog';
   import { writeFile } from '@tauri-apps/plugin-fs';
   import { invoke } from '@tauri-apps/api/core';
+  import '../../../lib/styles/common.css';
 
   // Audio processing variables
   let audioContext: AudioContext | null = null;
@@ -430,23 +431,30 @@
   <h1>Spectrum Visualizer</h1>
   
   <div class="input-section">
-    <input type="file" id="audioInput" accept=".wav" onchange={handleFileChange}>
+    <input
+      type="file"
+      accept=".wav"
+      onchange={handleFileChange}
+      disabled={isProcessing || isPreviewing}
+    />
+    
     {#if !isPreviewing}
       <button onclick={startPreview} disabled={isProcessing || !audioFile}>
         Preview
       </button>
     {:else}
-      <button onclick={stopPreview} class="stop-button">
+      <button class="stop-button" onclick={stopPreview}>
         Stop Preview
       </button>
     {/if}
+
     <button onclick={processAudio} disabled={isProcessing || isPreviewing || isConverting || !audioFile}>
       {#if isProcessing}
         Processing...
       {:else if isConverting}
         Converting...
       {:else}
-        Start Processing
+        Start Processing & Record
       {/if}
     </button>
     <a href="/" class="back-button">Back to Home</a>
@@ -454,26 +462,147 @@
 
   <div class="preview">
     <h3>Spectrum Visualization</h3>
-    <canvas bind:this={canvas} id="canvas"></canvas>
-    {#if isProcessing || isConverting}
+    <div class="canvas-container">
+      <canvas bind:this={canvas} width="1920" height="1080"></canvas>
+    </div>
+    
+    {#if isProcessing && processingProgress > 0}
       <div class="progress-container">
         <div class="progress-bar">
           <div class="progress-fill" style="width: {processingProgress}%"></div>
         </div>
-        <div class="progress-text">
-          {#if isProcessing}
-            Recording: {Math.round(processingProgress)}%
-          {:else if isConverting}
-            Converting to {settings.exportFormat.toUpperCase()}...
-          {/if}
-        </div>
+        <span class="progress-text">{Math.round(processingProgress)}%</span>
+      </div>
+    {/if}
+
+    {#if isConverting}
+      <div class="converting-message">
+        <p>Converting to {settings.exportFormat.toUpperCase()}...</p>
       </div>
     {/if}
   </div>
 
-  {#if showSettings}
-    <!-- Export format settings -->
-    <div class="settings">
+  {#if audioFile}
+    <div class="settings-grid">
+      <!-- Display Settings -->
+      <div class="settings">
+        <h3>Display Settings</h3>
+        
+        <div class="setting-group">
+          <label>
+            FFT Size:
+            <select bind:value={settings.fftSize}>
+              <option value={512}>512</option>
+              <option value={1024}>1024</option>
+              <option value={2048}>2048</option>
+              <option value={4096}>4096</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Frequency Range: {freqRangeText}
+            <div class="range-inputs">
+              <input
+                type="range"
+                min="0"
+                max="24000"
+                value={settings.minFreq}
+                step="10"
+                oninput={updateMinFreq}
+              />
+              <input
+                type="range"
+                min="0"
+                max="24000"
+                value={settings.maxFreq}
+                step="10"
+                oninput={updateMaxFreq}
+              />
+            </div>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Number of Bars: {settings.barCount}
+            <input
+              type="range"
+              min="16"
+              max="256"
+              bind:value={settings.barCount}
+            />
+            <span class="note-hint">(Recommended: 16-256)</span>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Display Style          
+            <select bind:value={settings.spectrumStyle}>
+              <option value="normal">Normal</option>
+              <option value="center">Center (Up/Down)</option>
+              <option value="circular">Circular</option>
+              <option value="liner">Line</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <!-- Color Settings -->
+      <div class="settings">
+        <h3>Color Settings</h3>
+        
+        <div class="setting-group">
+          <label>
+            Background Color:
+            <input type="color" bind:value={settings.backgroundColor} />
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Bar Color:
+            <input type="color" bind:value={settings.barColor} />
+          </label>
+        </div>
+      </div>
+
+      <!-- Style Settings -->
+      <div class="settings">
+        <h3>Style Settings</h3>
+        
+        <div class="setting-group">
+          <label>
+            Bar Width: {barWidthText}
+            <input
+              type="range"
+              min="10"
+              max="100"
+              bind:value={settings.barWidthPercent}
+              step="5"
+            />
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Amplitude Scale: {amplitudeScaleText}
+            <input
+              type="range"
+              min="10"
+              max="200"
+              bind:value={settings.amplitudeScale}
+              step="10"
+            />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Settings (Full Width) -->
+    <div class="settings settings-full">
       <h3>Export Settings</h3>
       <div>
         <label for="exportFormat">Output Format:</label>
@@ -500,80 +629,6 @@
         </div>
       {/if}
     </div>
-
-    <!-- Spectrum settings panel -->
-    <div class="settings">
-      <h3>Spectrum Settings</h3>
-      <div>
-        <label for="fftSize">FFT Size:</label>
-        <select id="fftSize" bind:value={settings.fftSize}>
-          <option value={512}>512</option>
-          <option value={1024}>1024</option>
-          <option value={2048}>2048</option>
-          <option value={4096}>4096</option>
-        </select>
-      </div>
-      <div>Frequency Range: <span>{freqRangeText}</span></div>
-      <div class="range-slider">
-        <input 
-          type="range" 
-          id="minFreqRange" 
-          min="0" 
-          max="24000" 
-          value={settings.minFreq}
-          step="10"
-          oninput={updateMinFreq}
-        >
-        <input 
-          type="range" 
-          id="maxFreqRange" 
-          min="0" 
-          max="24000" 
-          value={settings.maxFreq}
-          step="10"
-          oninput={updateMaxFreq}
-        >
-      </div>
-      <br>
-      <div>
-        <label for="backgroundColor">Background Color:</label>
-        <input type="color" id="backgroundColor" bind:value={settings.backgroundColor}>
-      </div>
-      <div>
-        <label for="barColor">Bar Color:</label>
-        <input type="color" id="barColor" bind:value={settings.barColor}>
-      </div>
-      <br>
-      <div>
-        <label for="barCount">Number of Bars:</label>
-        <span class="range-slider">
-          <input type="number" id="barCount" bind:value={settings.barCount} min="16" max="256">
-        </span>
-        <span class="note" style="opacity: 0.6">(Recommended: 16-256)</span>
-      </div>
-      <div>
-        <label for="barWidth">Bar Width: <span>{barWidthText}</span></label>
-        <div class="range-slider">
-          <input type="range" id="barWidth" min="10" max="100" bind:value={settings.barWidthPercent} step="5">
-        </div>
-      </div>
-      <br>
-      <div>
-        <label for="spectrumStyle">Display Style:</label>
-        <select id="spectrumStyle" bind:value={settings.spectrumStyle}>
-          <option value="normal">Normal</option>
-          <option value="center">Center (Up/Down)</option>
-          <option value="circular">Circular</option>
-          <option value="liner">Line</option>
-        </select>
-      </div>
-      <div>
-        <label for="amplitudeScale">Amplitude Scale: <span>{amplitudeScaleText}</span></label>
-        <div class="range-slider">
-          <input type="range" id="amplitudeScale" min="10" max="200" bind:value={settings.amplitudeScale} step="10">
-        </div>
-      </div>
-    </div>
   {/if}
 </div>
 
@@ -589,6 +644,7 @@
   .container {
     max-width: 1200px;
     margin: 0 auto;
+    padding: 20px;
   }
 
   h1 {
@@ -626,13 +682,138 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   }
 
-  canvas {
-    width: 100%;
-    max-height: 600px;
-    background-color: #2a2419;
-    margin: 20px 0;
+  .preview {
+    background: #3e3429;
+    padding: 15px;
     border-radius: 8px;
+    border: 1px solid #6b4423;
+  }
+
+  .preview h3 {
+    margin-bottom: 10px;
+    color: #d4a574;
+    text-align: center;
+  }
+
+  /* Settings Grid Layout */
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+  }
+
+  .settings {
+    background: #3e3429;
+    padding: 20px;
+    border-radius: 8px;
+    transition: opacity 0.3s ease;
+    border: 1px solid #6b4423;
+    height: fit-content;
+  }
+
+  .settings-full {
+    grid-column: 1 / -1;
+  }
+
+  .settings h3 {
+    margin: 0 0 15px 0;
+    padding-bottom: 10px;
+    color: #d4a574;
+    font-family: "DotGothic16", sans-serif;
+    border-bottom: 1px solid #6b4423;
+  }
+
+  .setting-group {
+    margin-bottom: 18px;
+  }
+
+  .setting-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .setting-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #e8d5c4;
+    font-size: 0.95em;
+  }
+
+  .note-hint {
+    display: block;
+    margin-top: 5px;
+    font-size: 0.85em;
+    color: #b39674;
+    font-style: italic;
+  }
+
+  .range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .range-inputs input {
+    width: 100%;
+  }
+
+  input[type="color"],
+  input[type="number"],
+  input[type="range"] {
+    padding: 8px;
+    background: #2a2419;
     border: 2px solid #6b4423;
+    border-radius: 4px;
+    color: #f5e6d3;
+    cursor: pointer;
+  }
+
+  input[type="range"] {
+    width: 100%;
+  }
+
+  input[type="checkbox"] {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+
+  select {
+    font-family: "DotGothic16", sans-serif;
+    padding: 6px 10px;
+    background-color: #2a2419;
+    color: #f5e6d3;
+    border: 1px solid #6b4423;
+    border-radius: 4px;
+  }
+
+  select:focus {
+    outline: none;
+    border-color: #d4a574;
+    box-shadow: 0 0 0 2px rgba(212, 165, 116, 0.2);
+  }
+
+  label {
+    font-family: "DotGothic16", sans-serif;
+    display: inline-block;
+    margin: 10px 0 5px 0;
+    color: #e8d5c4;
+  }
+
+  code {
+    background-color: #2a2419;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 0.9em;
+  }
+
+  .note {
+    font-size: 0.9em;
+    color: #c4a57b;
   }
 
   button {
@@ -669,135 +850,6 @@
     background-color: #a73d3a;
   }
 
-  .range-slider {
-    margin-top: 10px;
-    position: relative;
-    width: 200px;
-    height: 20px;
-  }
-
-  .range-slider input[type="range"] {
-    position: absolute;
-    width: 100%;
-    pointer-events: none;
-    appearance: none;
-    height: 4px;
-    background: #6b4423;
-    outline: none;
-    border-radius: 2px;
-  }
-
-  .range-slider input[type="range"]::-webkit-slider-thumb {
-    pointer-events: auto;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #d4a574;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    border: 2px solid #8b6f47;
-  }
-
-  .range-slider input[type="range"]::-moz-range-thumb {
-    pointer-events: auto;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #d4a574;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    border: 2px solid #8b6f47;
-  }
-
-  .range-slider input[type="range"]:nth-child(1) {
-    z-index: 2;
-  }
-
-  .settings {
-    background: #3e3429;
-    padding: 15px;
-    border-radius: 8px;
-    transition: opacity 0.3s ease;
-    margin-bottom: 10px;
-    border: 1px solid #6b4423;
-  }
-
-  .settings h3 {
-    margin-bottom: 10px;
-    color: #d4a574;
-    font-family: "DotGothic16", sans-serif;
-  }
-
-  .preview {
-    background: #3e3429;
-    padding: 15px;
-    border-radius: 8px;
-    border: 1px solid #6b4423;
-  }
-
-  .preview h3 {
-    margin-bottom: 10px;
-    color: #d4a574;
-    text-align: center;
-  }
-
-  input[type="number"],
-  select {
-    font-family: "DotGothic16", sans-serif;
-    padding: 6px 10px;
-    background-color: #2a2419;
-    color: #f5e6d3;
-    border: 1px solid #6b4423;
-    border-radius: 4px;
-  }
-
-  input[type="number"]:focus,
-  select:focus {
-    outline: none;
-    border-color: #d4a574;
-    box-shadow: 0 0 0 2px rgba(212, 165, 116, 0.2);
-  }
-
-  input[type="color"] {
-    cursor: pointer;
-    border: 2px solid #6b4423;
-    border-radius: 4px;
-    background-color: #2a2419;
-    padding: 2px;
-    width: 50px;
-    height: 35px;
-  }
-
-  label {
-    font-family: "DotGothic16", sans-serif;
-    display: inline-block;
-    margin: 10px 0 5px 0;
-    color: #e8d5c4;
-  }
-
-  input[type="checkbox"] {
-    cursor: pointer;
-    width: 18px;
-    height: 18px;
-    margin-left: 10px;
-    vertical-align: middle;
-  }
-
-  code {
-    background-color: #2a2419;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-family: monospace;
-    font-size: 0.9em;
-  }
-
-  .note {
-    font-size: 0.9em;
-    color: #c4a57b;
-  }
-
   .progress-container {
     margin-top: 15px;
   }
@@ -826,6 +878,60 @@
     font-size: 1.1em;
     color: #d4a574;
     font-weight: bold;
+  }
+
+  .converting-message {
+    margin-top: 15px;
+    padding: 15px;
+    background: #8b6f47;
+    border-radius: 8px;
+    text-align: center;
+  }
+
+  .converting-message p {
+    margin: 0;
+    color: #f5e6d3;
+  }
+
+  .canvas-container {
+    margin: 20px 0;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    background-color: #2a2419;
+    border-radius: 8px;
+    border: 2px solid #6b4423;
+  }
+
+  /* Responsive Design */
+  @media (max-width: 1024px) {
+    .settings-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .container {
+      padding: 10px;
+    }
+
+    .settings {
+      padding: 15px;
+    }
+
+    .settings h3 {
+      font-size: 1.1em;
+    }
+
+    .setting-group {
+      margin-bottom: 15px;
+    }
   }
 </style>
 

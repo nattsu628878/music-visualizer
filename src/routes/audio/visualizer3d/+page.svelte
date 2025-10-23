@@ -4,6 +4,7 @@
   import { save } from '@tauri-apps/plugin-dialog';
   import { writeFile } from '@tauri-apps/plugin-fs';
   import { invoke } from '@tauri-apps/api/core';
+  import '../../../lib/styles/common.css';
 
   // Audio processing variables
   let audioContext: AudioContext | null = null;
@@ -485,23 +486,30 @@
   <h1>3D Visualizer</h1>
   
   <div class="input-section">
-    <input type="file" id="audioInput" accept=".wav" onchange={handleFileChange}>
+    <input
+      type="file"
+      accept=".wav"
+      onchange={handleFileChange}
+      disabled={isProcessing || isPreviewing}
+    />
+    
     {#if !isPreviewing}
       <button onclick={startPreview} disabled={isProcessing || !audioFile}>
         Preview
       </button>
     {:else}
-      <button onclick={stopPreview} class="stop-button">
+      <button class="stop-button" onclick={stopPreview}>
         Stop Preview
       </button>
     {/if}
+
     <button onclick={processAudio} disabled={isProcessing || isPreviewing || isConverting || !audioFile}>
       {#if isProcessing}
         Processing...
       {:else if isConverting}
         Converting...
       {:else}
-        Start Processing
+        Start Processing & Record
       {/if}
     </button>
     <a href="/" class="back-button">Back to Home</a>
@@ -509,26 +517,168 @@
 
   <div class="preview">
     <h3>3D Visualization</h3>
-    <div bind:this={container} class="three-container"></div>
-    {#if isProcessing || isConverting}
+    <div class="canvas-container">
+      <div bind:this={container} class="three-container"></div>
+    </div>
+    
+    {#if isProcessing && processingProgress > 0}
       <div class="progress-container">
         <div class="progress-bar">
           <div class="progress-fill" style="width: {processingProgress}%"></div>
         </div>
-        <div class="progress-text">
-          {#if isProcessing}
-            Recording: {Math.round(processingProgress)}%
-          {:else if isConverting}
-            Converting to {settings.exportFormat.toUpperCase()}...
-          {/if}
-        </div>
+        <span class="progress-text">{Math.round(processingProgress)}%</span>
+      </div>
+    {/if}
+
+    {#if isConverting}
+      <div class="converting-message">
+        <p>Converting to {settings.exportFormat.toUpperCase()}...</p>
       </div>
     {/if}
   </div>
 
-  {#if showSettings}
-    <!-- Export format settings -->
-    <div class="settings">
+  {#if audioFile}
+    <div class="settings-grid">
+      <!-- 3D Settings -->
+      <div class="settings">
+        <h3>3D Settings</h3>
+        
+        <div class="setting-group">
+          <label>
+            Visualization Mode:
+            <select bind:value={settings.visualizationMode} onchange={updateVisualizationMode}>
+              <option value="circular">Circular</option>
+              <option value="grid">Grid</option>
+              <option value="wave">Wave</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            <input type="checkbox" bind:checked={settings.autoRotate} />
+            Auto Rotate
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Rotation Speed: {rotationSpeedText}
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              bind:value={settings.rotationSpeed}
+            />
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Camera Distance: {settings.cameraDistance}
+            <input
+              type="range"
+              min="50"
+              max="300"
+              step="10"
+              bind:value={settings.cameraDistance}
+              oninput={updateCameraDistance}
+            />
+          </label>
+        </div>
+      </div>
+
+      <!-- Color Settings -->
+      <div class="settings">
+        <h3>Color Settings</h3>
+        
+        <div class="setting-group">
+          <label>
+            Background Color:
+            <input type="color" bind:value={settings.backgroundColor} onchange={updateBackgroundColor} />
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Bar Color:
+            <input type="color" bind:value={settings.barColor} onchange={createBars} />
+          </label>
+        </div>
+      </div>
+
+      <!-- Audio Settings -->
+      <div class="settings">
+        <h3>Audio Settings</h3>
+        
+        <div class="setting-group">
+          <label>
+            FFT Size:
+            <select bind:value={settings.fftSize}>
+              <option value={512}>512</option>
+              <option value={1024}>1024</option>
+              <option value={2048}>2048</option>
+              <option value={4096}>4096</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Frequency Range: {freqRangeText}
+            <div class="range-inputs">
+              <input
+                type="range"
+                min="0"
+                max="24000"
+                value={settings.minFreq}
+                step="10"
+                oninput={updateMinFreq}
+              />
+              <input
+                type="range"
+                min="0"
+                max="24000"
+                value={settings.maxFreq}
+                step="10"
+                oninput={updateMaxFreq}
+              />
+            </div>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Number of Bars: {settings.barCount}
+            <input
+              type="range"
+              min="16"
+              max="256"
+              bind:value={settings.barCount}
+              onchange={createBars}
+            />
+            <span class="note-hint">(Recommended: 16-256)</span>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            Amplitude Scale: {amplitudeScaleText}
+            <input
+              type="range"
+              min="10"
+              max="200"
+              bind:value={settings.amplitudeScale}
+              step="10"
+            />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Settings (Full Width) -->
+    <div class="settings settings-full">
       <h3>Export Settings</h3>
       <div>
         <label for="exportFormat">Output Format:</label>
@@ -555,86 +705,6 @@
         </div>
       {/if}
     </div>
-
-    <!-- 3D Visualization settings -->
-    <div class="settings">
-      <h3>3D Settings</h3>
-      <div>
-        <label for="visualizationMode">Visualization Mode:</label>
-        <select id="visualizationMode" bind:value={settings.visualizationMode} onchange={updateVisualizationMode}>
-          <option value="circular">Circular</option>
-          <option value="grid">Grid</option>
-          <option value="wave">Wave</option>
-        </select>
-      </div>
-      <div>
-        <label for="autoRotate">Auto Rotate:</label>
-        <input type="checkbox" id="autoRotate" bind:checked={settings.autoRotate}>
-      </div>
-      <div>
-        <label for="rotationSpeed">Rotation Speed: <span>{rotationSpeedText}</span></label>
-        <div class="range-slider">
-          <input type="range" id="rotationSpeed" min="0" max="2" step="0.1" bind:value={settings.rotationSpeed}>
-        </div>
-      </div>
-      <div>
-        <label for="cameraDistance">Camera Distance:</label>
-        <div class="range-slider">
-          <input type="range" id="cameraDistance" min="50" max="300" step="10" bind:value={settings.cameraDistance} oninput={updateCameraDistance}>
-        </div>
-      </div>
-      <div>
-        <label for="backgroundColor">Background Color:</label>
-        <input type="color" id="backgroundColor" bind:value={settings.backgroundColor} onchange={updateBackgroundColor}>
-      </div>
-      <div>
-        <label for="barColor">Bar Color:</label>
-        <input type="color" id="barColor" bind:value={settings.barColor} onchange={createBars}>
-      </div>
-    </div>
-
-    <!-- Audio analysis settings -->
-    <div class="settings">
-      <h3>Audio Settings</h3>
-      <div>
-        <label for="fftSize">FFT Size:</label>
-        <select id="fftSize" bind:value={settings.fftSize}>
-          <option value={512}>512</option>
-          <option value={1024}>1024</option>
-          <option value={2048}>2048</option>
-          <option value={4096}>4096</option>
-        </select>
-      </div>
-      <div>Frequency Range: <span>{freqRangeText}</span></div>
-      <div class="range-slider">
-        <input 
-          type="range" 
-          id="minFreqRange" 
-          min="0" 
-          max="24000" 
-          value={settings.minFreq}
-          step="10"
-          oninput={updateMinFreq}
-        >
-        <input 
-          type="range" 
-          id="maxFreqRange" 
-          min="0" 
-          max="24000" 
-          value={settings.maxFreq}
-          step="10"
-          oninput={updateMaxFreq}
-        >
-      </div>
-      <br>
-      <div>
-        <label for="barCount">Number of Bars:</label>
-        <span class="range-slider">
-          <input type="number" id="barCount" bind:value={settings.barCount} min="16" max="256" onchange={createBars}>
-        </span>
-        <span class="note" style="opacity: 0.6">(Recommended: 16-256)</span>
-      </div>
-    </div>
   {/if}
 </div>
 
@@ -650,6 +720,7 @@
   .container {
     max-width: 1200px;
     margin: 0 auto;
+    padding: 20px;
   }
 
   h1 {
@@ -685,6 +756,142 @@
     background-color: #4a6a5a;
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .preview {
+    background: #3e3429;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #6b4423;
+  }
+
+  .preview h3 {
+    margin-bottom: 10px;
+    color: #d4a574;
+    text-align: center;
+  }
+
+  /* Settings Grid Layout */
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+  }
+
+  .settings {
+    background: #3e3429;
+    padding: 20px;
+    border-radius: 8px;
+    transition: opacity 0.3s ease;
+    border: 1px solid #6b4423;
+    height: fit-content;
+  }
+
+  .settings-full {
+    grid-column: 1 / -1;
+  }
+
+  .settings h3 {
+    margin: 0 0 15px 0;
+    padding-bottom: 10px;
+    color: #d4a574;
+    font-family: "DotGothic16", sans-serif;
+    border-bottom: 1px solid #6b4423;
+  }
+
+  .setting-group {
+    margin-bottom: 18px;
+  }
+
+  .setting-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .setting-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #e8d5c4;
+    font-size: 0.95em;
+  }
+
+  .note-hint {
+    display: block;
+    margin-top: 5px;
+    font-size: 0.85em;
+    color: #b39674;
+    font-style: italic;
+  }
+
+  .range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .range-inputs input {
+    width: 100%;
+  }
+
+  input[type="color"],
+  input[type="number"],
+  input[type="range"] {
+    padding: 8px;
+    background: #2a2419;
+    border: 2px solid #6b4423;
+    border-radius: 4px;
+    color: #f5e6d3;
+    cursor: pointer;
+  }
+
+  input[type="range"] {
+    width: 100%;
+  }
+
+  input[type="checkbox"] {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+
+  select {
+    font-family: "DotGothic16", sans-serif;
+    padding: 6px 10px;
+    background-color: #2a2419;
+    color: #f5e6d3;
+    border: 1px solid #6b4423;
+    border-radius: 4px;
+  }
+
+  select:focus {
+    outline: none;
+    border-color: #d4a574;
+    box-shadow: 0 0 0 2px rgba(212, 165, 116, 0.2);
+  }
+
+  label {
+    font-family: "DotGothic16", sans-serif;
+    display: inline-block;
+    margin: 10px 0 5px 0;
+    color: #e8d5c4;
+  }
+
+  .canvas-container {
+    margin: 20px 0;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .three-container {
+    width: 100%;
+    height: 400px;
+    background-color: #2a2419;
+    border-radius: 8px;
+    border: 2px solid #6b4423;
   }
 
   .three-container {
