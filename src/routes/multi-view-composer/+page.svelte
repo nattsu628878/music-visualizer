@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { open } from '@tauri-apps/plugin-dialog';
+  import { save } from '@tauri-apps/plugin-dialog';
   import { writeFile } from '@tauri-apps/plugin-fs';
+  import { invoke } from '@tauri-apps/api/core';
 
   // State management
   let selectedFile: File | null = null;
@@ -53,10 +53,8 @@
   let isProjectLayerSelected = false;
   
   // Preview controls
-  let isPreviewPlaying = false;
   let previewCanvas: HTMLCanvasElement;
   let previewCtx: CanvasRenderingContext2D | null = null;
-  let previewAnimationId: number | null = null;
   
 
   // Global settings
@@ -69,6 +67,18 @@
     frameRate: '30',
     quality: 'high'
   };
+
+  // Canvas dimensions based on aspect ratio
+  $: canvasDimensions = (() => {
+    const selectedRatio = aspectRatios.find(ratio => ratio.value === globalSettings.aspectRatio);
+    if (selectedRatio) {
+      return {
+        width: selectedRatio.width,
+        height: selectedRatio.height
+      };
+    }
+    return { width: 1920, height: 1080 };
+  })();
 
   // Aspect ratio options
   const aspectRatios = [
@@ -106,57 +116,23 @@
     try {
       console.log('Opening file dialog...');
       
-      // Try the dialog plugin first
-      let filePath: string | null = null;
+      // Use HTML file input as primary method for better compatibility
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.wav,.mp3,.flac,.aac,.ogg,.mid,.midi';
+      input.multiple = false;
       
-      try {
-        filePath = await open({
-          multiple: false,
-          filters: [
-            {
-              name: 'Audio Files',
-              extensions: ['wav', 'mp3', 'flac', 'aac', 'ogg']
-            },
-            {
-              name: 'MIDI Files',
-              extensions: ['mid', 'midi']
-            },
-            {
-              name: 'All Files',
-              extensions: ['*']
-            }
-          ]
-        });
-      } catch (dialogError) {
-        console.error('Dialog plugin error:', dialogError);
-        
-        // Fallback to HTML file input
-        console.log('Falling back to HTML file input...');
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.wav,.mp3,.flac,.aac,.ogg,.mid,.midi';
-        input.multiple = false;
-        
-        input.onchange = async (event) => {
-          const target = event.target as HTMLInputElement;
-          const file = target.files?.[0];
-          if (file) {
-            console.log('File selected via HTML input:', file.name);
-            await loadFileFromHTMLInput(file);
-          }
-        };
-        
-        input.click();
-        return;
-      }
-
-      console.log('File dialog result:', filePath);
-      if (filePath) {
-        console.log('Loading file:', filePath);
-        await loadFile(filePath);
-      } else {
-        console.log('No file selected');
-      }
+      input.onchange = async (event) => {
+        const target = event.target as HTMLInputElement;
+        const file = target.files?.[0];
+        if (file) {
+          console.log('File selected:', file.name);
+          await loadFileFromHTMLInput(file);
+        }
+      };
+      
+      input.click();
+      
     } catch (error) {
       console.error('Error selecting file:', error);
       alert('Error selecting file. Please try again.');
@@ -181,6 +157,9 @@
       
       if (!isAudio && !isMidi) {
         alert('Unsupported file type. Please select an audio or MIDI file.');
+        isLoading = false;
+        loadingProgress = 0;
+        loadingStatus = '';
         return;
       }
 
@@ -197,15 +176,29 @@
       let duration: number | undefined;
       if (isAudio) {
         try {
-          const audio = new Audio(preview);
+          const audio = new Audio();
+          audio.crossOrigin = 'anonymous';
+          
           await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              console.warn('Audio metadata loading timeout');
+              resolve(false);
+            }, 5000);
+            
             audio.addEventListener('loadedmetadata', () => {
+              clearTimeout(timeout);
               duration = audio.duration;
+              console.log('Audio duration:', duration);
               resolve(true);
             });
-            audio.addEventListener('error', reject);
-            // Set a timeout to avoid hanging
-            setTimeout(() => resolve(false), 5000);
+            
+            audio.addEventListener('error', (e) => {
+              clearTimeout(timeout);
+              console.warn('Audio metadata error:', e);
+              resolve(false);
+            });
+            
+            audio.src = preview;
           });
         } catch (error) {
           console.warn('Could not get audio duration:', error);
@@ -237,7 +230,7 @@
       loadingProgress = 100;
       loadingStatus = '完了';
       
-      console.log('File loaded successfully:', file.name);
+      console.log('File loaded successfully:', file.name, 'Duration:', duration);
       
       // 少し待ってから進捗をリセット
       setTimeout(() => {
@@ -255,110 +248,6 @@
     }
   }
 
-  async function loadFile(filePath: string) {
-    try {
-      isLoading = true;
-      loadingProgress = 0;
-      loadingStatus = 'ファイルを読み込み中...';
-      
-      // ファイル読み込み開始
-      loadingProgress = 20;
-      loadingStatus = 'ファイルを読み込み中...';
-      
-      // Use Tauri's readFile to get the actual file content
-      const fileContent = await invoke('read_file', { path: filePath });
-      const fileName = filePath.split('/').pop() || 'file';
-      
-      loadingProgress = 40;
-      loadingStatus = 'ファイル形式を確認中...';
-      
-      // Determine file type
-      const extension = fileName.split('.').pop()?.toLowerCase();
-      const isAudio = ['wav', 'mp3', 'flac', 'aac', 'ogg'].includes(extension || '');
-      const isMidi = ['mid', 'midi'].includes(extension || '');
-      
-      if (!isAudio && !isMidi) {
-        alert('Unsupported file type. Please select an audio or MIDI file.');
-        return;
-      }
-
-      loadingProgress = 60;
-      loadingStatus = 'ファイルを処理中...';
-
-      // Convert Uint8Array to Blob
-      const uint8Array = new Uint8Array(fileContent as ArrayBuffer);
-      const blob = new Blob([uint8Array], { 
-        type: isAudio ? 'audio/wav' : 'audio/midi' 
-      });
-      const file = new File([blob], fileName, { 
-        type: blob.type 
-      });
-      
-      // Create preview URL
-      const preview = URL.createObjectURL(blob);
-      
-      loadingProgress = 80;
-      loadingStatus = 'メタデータを取得中...';
-      
-      // Get file duration for audio files
-      let duration: number | undefined;
-      if (isAudio) {
-        try {
-          const audio = new Audio(preview);
-          await new Promise((resolve, reject) => {
-            audio.addEventListener('loadedmetadata', () => {
-              duration = audio.duration;
-              resolve(true);
-            });
-            audio.addEventListener('error', reject);
-            // Set a timeout to avoid hanging
-            setTimeout(() => resolve(false), 5000);
-          });
-        } catch (error) {
-          console.warn('Could not get audio duration:', error);
-        }
-      }
-
-      loadingProgress = 90;
-      loadingStatus = 'ファイルリストを更新中...';
-
-      // Add to loaded files
-      const fileData = {
-        id: `file-${nextFileId++}`,
-        name: fileName,
-        type: isAudio ? 'audio' as const : 'midi' as const,
-        file: file,
-        preview: preview,
-        duration: duration,
-        size: file.size
-      };
-
-      loadedFiles = [...loadedFiles, fileData];
-      
-      // Set as selected file if it's the first one
-      if (loadedFiles.length === 1) {
-        selectedFile = file;
-        filePreview = preview;
-      }
-      
-      loadingProgress = 100;
-      loadingStatus = '完了';
-      
-      // 少し待ってから進捗をリセット
-      setTimeout(() => {
-        isLoading = false;
-        loadingProgress = 0;
-        loadingStatus = '';
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Error loading file:', error);
-      alert('Error loading file. Please try again.');
-      isLoading = false;
-      loadingProgress = 0;
-      loadingStatus = '';
-    }
-  }
 
   function removeFile(fileId: string) {
     const fileData = loadedFiles.find(f => f.id === fileId);
@@ -431,23 +320,63 @@
 
   // Layer management
   function addLayer(type: string) {
-    const layerSize = calculateLayerSize();
+    console.log('Adding layer with type:', type);
+    const layerSize = calculateDefaultLayerSize(type);
+    const defaultPosition = calculateDefaultLayerPosition(layers.length);
+    
     const newLayer = {
       id: `layer-${nextLayerId++}`,
       type: type as any,
       name: `${type.charAt(0).toUpperCase() + type.slice(1)} Layer`,
       visible: true,
       opacity: 1.0,
-      x: 0,
-      y: 0,
+      x: defaultPosition.x,
+      y: defaultPosition.y,
       width: layerSize.width,
       height: layerSize.height,
       settings: getDefaultSettings(type),
       assignedFileId: undefined
     };
     
+    console.log('Created layer:', newLayer);
     layers = [...layers, newLayer];
     selectedLayer = newLayer.id;
+    console.log('Selected layer:', selectedLayer);
+  }
+
+  function calculateDefaultLayerSize(modeType: string) {
+    // Default size based on visualization type
+    switch (modeType) {
+      case 'spectrum':
+        return { width: 40, height: 30 };
+      case 'waveform':
+        return { width: 50, height: 20 };
+      case 'spectrogram':
+        return { width: 60, height: 40 };
+      case '3d':
+        return { width: 35, height: 35 };
+      case 'pianoroll':
+        return { width: 45, height: 25 };
+      case 'score':
+        return { width: 40, height: 30 };
+      default:
+        return { width: 30, height: 30 };
+    }
+  }
+
+  function calculateDefaultLayerPosition(layerCount: number) {
+    // Arrange layers in a grid pattern
+    const cols = 3;
+    const row = Math.floor(layerCount / cols);
+    const col = layerCount % cols;
+    
+    const margin = 5;
+    const spacing = 10;
+    
+    return {
+      x: margin + col * (35 + spacing),
+      y: margin + row * (30 + spacing)
+    };
   }
 
   function assignFileToLayer(layerId: string, fileId: string) {
@@ -512,7 +441,10 @@
   }
 
   function getSelectedLayer() {
-    return layers.find(layer => layer.id === selectedLayer);
+    const layer = layers.find(layer => layer.id === selectedLayer);
+    console.log('getSelectedLayer - selectedLayer:', selectedLayer);
+    console.log('getSelectedLayer - found layer:', layer);
+    return layer;
   }
 
   function getDefaultSettings(type: string) {
@@ -597,195 +529,833 @@
     isProjectLayerSelected = true;
   }
   
+  // Audio context and analyser for real audio processing
+  let audioContext: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  let audioSource: AudioBufferSourceNode | null = null;
+  let isPreviewPlaying = false;
+  let previewAnimationId: number | null = null;
+
   // Preview control functions
-  function startPreview() {
-    isPreviewPlaying = true;
-    console.log('Preview started');
-    startVisualization();
-  }
-  
-  function startVisualization() {
-    if (!previewCanvas || !previewCtx) return;
-    
-    // Clear canvas
-    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    
-    // Set background color
-    previewCtx.fillStyle = globalSettings.backgroundColor;
-    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-    
-    // Render each visible layer
-    layers.forEach(layer => {
-      if (!layer.visible) return;
+  async function startPreview() {
+    if (!selectedFile) {
+      alert('Please select an audio file first.');
+      return;
+    }
+
+    if (layers.length === 0) {
+      alert('Please add at least one visualization layer.');
+      return;
+    }
+
+    try {
+      isPreviewPlaying = true;
+      console.log('Starting preview with real audio processing...');
       
-      // Calculate layer position and size in pixels
-      const x = (layer.x / 100) * previewCanvas.width;
-      const y = (layer.y / 100) * previewCanvas.height;
-      const width = (layer.width / 100) * previewCanvas.width;
-      const height = (layer.height / 100) * previewCanvas.height;
+      // Initialize audio context
+      audioContext = new AudioContext();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+
+      // Load and play audio file
+      const audioBuffer = await selectedFile.arrayBuffer();
+      const decodedAudio = await audioContext.decodeAudioData(audioBuffer);
+      audioSource = audioContext.createBufferSource();
+      audioSource.buffer = decodedAudio;
+      audioSource.loop = true;
       
-      // Save context state
-      previewCtx.save();
+      audioSource.connect(analyser);
+      audioSource.connect(audioContext.destination);
+      audioSource.start(0);
+
+      // Start visualization loop
+      startVisualization();
       
-      // Set opacity
-      previewCtx.globalAlpha = layer.opacity;
-      
-      // Render layer based on type
-      renderLayer(layer, x, y, width, height);
-      
-      // Restore context state
-      previewCtx.restore();
-    });
-    
-    // Continue animation if playing
-    if (isPreviewPlaying) {
-      previewAnimationId = requestAnimationFrame(startVisualization);
+    } catch (error) {
+      console.error('Error starting preview:', error);
+      alert('Error starting preview. Please try again.');
+      isPreviewPlaying = false;
     }
   }
   
-  function renderLayer(layer: any, x: number, y: number, width: number, height: number) {
+  function startVisualization() {
+    if (!previewCanvas || !previewCtx || !analyser) return;
+    
+    function draw() {
+      if (!isPreviewPlaying || !analyser || !previewCtx || isProcessing) return;
+      
+      // Clear canvas
+      if (previewCtx) {
+        previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+        
+        // Set background color
+        previewCtx.fillStyle = globalSettings.backgroundColor;
+        previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+      }
+      
+      // Get audio data
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(dataArray);
+      
+      // Render each visible layer with real audio data
+      layers.forEach(layer => {
+        if (!layer.visible) return;
+        
+        // Calculate layer position and size in pixels
+        const x = (layer.x / 100) * previewCanvas.width;
+        const y = (layer.y / 100) * previewCanvas.height;
+        const width = (layer.width / 100) * previewCanvas.width;
+        const height = (layer.height / 100) * previewCanvas.height;
+        
+        // Save context state
+        if (previewCtx) {
+          previewCtx.save();
+          
+          // Set opacity
+          previewCtx.globalAlpha = layer.opacity;
+          
+          // Render layer based on type with real audio data
+          renderLayerWithAudioData(layer, x, y, width, height, dataArray);
+          
+          // Restore context state
+          previewCtx.restore();
+        }
+      });
+      
+      // Continue animation
+      previewAnimationId = requestAnimationFrame(draw);
+    }
+    
+    draw();
+  }
+
+  function stopPreview() {
+    isPreviewPlaying = false;
+    if (previewAnimationId) {
+      cancelAnimationFrame(previewAnimationId);
+      previewAnimationId = null;
+    }
+    if (audioSource) {
+      audioSource.stop();
+      audioSource.disconnect();
+      audioSource = null;
+    }
+    if (audioContext) {
+      audioContext.close();
+      audioContext = null;
+    }
+    analyser = null;
+  }
+  
+  function renderLayerWithAudioData(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array) {
     if (!previewCtx) return;
     
     // Set layer background
     previewCtx.fillStyle = layer.settings.backgroundColor || '#000000';
     previewCtx.fillRect(x, y, width, height);
     
-    // Render based on layer type
+    // Render based on layer type with real audio data
     switch (layer.type) {
       case 'spectrum':
-        renderSpectrum(layer, x, y, width, height);
+        renderSpectrumWithAudioData(layer, x, y, width, height, dataArray);
         break;
       case 'waveform':
-        renderWaveform(layer, x, y, width, height);
+        renderWaveformWithAudioData(layer, x, y, width, height, dataArray);
         break;
       case 'spectrogram':
-        renderSpectrogram(layer, x, y, width, height);
+        renderSpectrogramWithAudioData(layer, x, y, width, height, dataArray);
         break;
       case '3d':
-        render3D(layer, x, y, width, height);
+        render3DWithAudioData(layer, x, y, width, height, dataArray);
         break;
       case 'pianoroll':
-        renderPianoRoll(layer, x, y, width, height);
+        renderPianoRollWithAudioData(layer, x, y, width, height, dataArray);
         break;
       case 'score':
-        renderScore(layer, x, y, width, height);
+        renderScoreWithAudioData(layer, x, y, width, height, dataArray);
         break;
     }
   }
   
-  function renderSpectrum(layer: any, x: number, y: number, width: number, height: number) {
+  function renderSpectrumWithAudioData(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array) {
     if (!previewCtx) return;
     
     const barCount = layer.settings.barCount || 64;
-    const barWidth = width / barCount;
     const barColor = layer.settings.barColor || '#ffffff';
+    const minFreq = layer.settings.minFreq || 20;
+    const maxFreq = layer.settings.maxFreq || 14400;
+    const amplitudeScale = layer.settings.amplitudeScale || 100;
+    const barWidthPercent = layer.settings.barWidthPercent || 90;
+    const spectrumStyle = layer.settings.spectrumStyle || 'normal';
+    
+    // Calculate frequency range
+    const nyquist = 22050; // Approximate for 44.1kHz sample rate
+    const minIndex = Math.floor(minFreq * dataArray.length / nyquist);
+    const maxIndex = Math.floor(maxFreq * dataArray.length / nyquist);
+    const frequencyRange = maxIndex - minIndex;
+    const samplesPerBar = Math.floor(frequencyRange / barCount);
     
     previewCtx.fillStyle = barColor;
+    previewCtx.strokeStyle = barColor;
     
-    for (let i = 0; i < barCount; i++) {
-      const barHeight = Math.random() * height * 0.8; // Simulate audio data
-      const barX = x + i * barWidth;
-      const barY = y + height - barHeight;
+    if (spectrumStyle === 'circular') {
+      const centerX = x + width / 2;
+      const centerY = y + height / 2;
+      const radius = Math.min(width, height) * 0.4;
       
-      previewCtx.fillRect(barX, barY, barWidth * 0.8, barHeight);
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        const startIndex = minIndex + (i * samplesPerBar);
+        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
+        
+        for (let j = startIndex; j < endIndex; j++) {
+          sum += dataArray[j];
+        }
+        
+        const average = sum / samplesPerBar;
+        const barHeight = (average / 255) * radius * (amplitudeScale / 100);
+        const angle = (i / barCount) * Math.PI * 2;
+        
+        const startX = centerX + (radius - barHeight) * Math.cos(angle);
+        const startY = centerY + (radius - barHeight) * Math.sin(angle);
+        const endX = centerX + radius * Math.cos(angle);
+        const endY = centerY + radius * Math.sin(angle);
+        
+        previewCtx.lineWidth = (2 * Math.PI * radius / barCount) * (barWidthPercent / 100);
+        previewCtx.beginPath();
+        previewCtx.moveTo(startX, startY);
+        previewCtx.lineTo(endX, endY);
+        previewCtx.stroke();
+      }
+    } else if (spectrumStyle === 'center') {
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        const startIndex = minIndex + (i * samplesPerBar);
+        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
+        
+        for (let j = startIndex; j < endIndex; j++) {
+          sum += dataArray[j];
+        }
+        
+        const average = sum / samplesPerBar;
+        const totalBarWidth = width / barCount;
+        const actualBarWidth = totalBarWidth * (barWidthPercent / 100);
+        const barStartX = x + i * totalBarWidth + (totalBarWidth - actualBarWidth) / 2;
+        
+        const barHeight = (average / 255) * (height / 2) * (amplitudeScale / 100);
+        previewCtx.fillRect(
+          barStartX,
+          y + height/2 - barHeight,
+          actualBarWidth,
+          barHeight * 2
+        );
+      }
+    } else {
+      // Normal style
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        const startIndex = minIndex + (i * samplesPerBar);
+        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
+        
+        for (let j = startIndex; j < endIndex; j++) {
+          sum += dataArray[j];
+        }
+        
+        const average = sum / samplesPerBar;
+        const totalBarWidth = width / barCount;
+        const actualBarWidth = totalBarWidth * (barWidthPercent / 100);
+        const barStartX = x + i * totalBarWidth + (totalBarWidth - actualBarWidth) / 2;
+        
+        const barHeight = (average / 255) * height * (amplitudeScale / 100);
+        previewCtx.fillRect(
+          barStartX,
+          y + height - barHeight,
+          actualBarWidth,
+          barHeight
+        );
+      }
     }
   }
   
-  function renderWaveform(layer: any, x: number, y: number, width: number, height: number) {
-    if (!previewCtx) return;
+  function renderWaveformWithAudioData(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array) {
+    if (!previewCtx || !analyser) return;
     
     const color = layer.settings.color || '#ffffff';
+    const amplitude = layer.settings.amplitude || 100;
+    const style = layer.settings.style || 'line';
+    
+    // Get time domain data for waveform
+    const timeData = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(timeData);
+    
     previewCtx.strokeStyle = color;
     previewCtx.lineWidth = 2;
     previewCtx.beginPath();
     
     const centerY = y + height / 2;
-    previewCtx.moveTo(x, centerY);
+    const sliceWidth = width / timeData.length;
+    let currentX = x;
     
-    for (let i = 0; i < width; i += 2) {
-      const amplitude = Math.sin(i * 0.1) * (height / 4); // Simulate waveform
-      previewCtx.lineTo(x + i, centerY + amplitude);
+    for (let i = 0; i < timeData.length; i++) {
+      const v = timeData[i] / 128.0;
+      const waveY = centerY + (v - 1) * (height / 2) * (amplitude / 100);
+      
+      if (i === 0) {
+        previewCtx.moveTo(currentX, waveY);
+      } else {
+        previewCtx.lineTo(currentX, waveY);
+      }
+      currentX += sliceWidth;
     }
     
-    previewCtx.stroke();
+    if (style === 'fill') {
+      previewCtx.lineTo(x + width, y + height);
+      previewCtx.lineTo(x, y + height);
+      previewCtx.fillStyle = color;
+      previewCtx.fill();
+    } else {
+      previewCtx.stroke();
+    }
   }
   
-  function renderSpectrogram(layer: any, x: number, y: number, width: number, height: number) {
+  function renderSpectrogramWithAudioData(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array) {
     if (!previewCtx) return;
     
-    // Create a simple spectrogram visualization
+    const colorMap = layer.settings.colorMap || 'viridis';
+    
+    // Create spectrogram visualization using frequency data
     const imageData = previewCtx.createImageData(width, height);
     const data = imageData.data;
     
     for (let i = 0; i < data.length; i += 4) {
-      const intensity = Math.random() * 255;
-      data[i] = intensity;     // Red
-      data[i + 1] = intensity; // Green
-      data[i + 2] = intensity; // Blue
+      const pixelIndex = i / 4;
+      const xPos = pixelIndex % width;
+      const yPos = Math.floor(pixelIndex / width);
+      
+      // Map y position to frequency data
+      const freqIndex = Math.floor((1 - yPos / height) * dataArray.length);
+      const intensity = dataArray[freqIndex] || 0;
+      
+      // Apply color mapping
+      if (colorMap === 'hot') {
+        data[i] = intensity;     // Red
+        data[i + 1] = Math.max(0, intensity - 85); // Green
+        data[i + 2] = Math.max(0, intensity - 170); // Blue
+      } else if (colorMap === 'cool') {
+        data[i] = Math.max(0, intensity - 170); // Red
+        data[i + 1] = Math.max(0, intensity - 85); // Green
+        data[i + 2] = intensity; // Blue
+      } else if (colorMap === 'grayscale') {
+        data[i] = intensity;     // Red
+        data[i + 1] = intensity; // Green
+        data[i + 2] = intensity; // Blue
+      } else {
+        // Viridis-like color mapping
+        data[i] = Math.floor(intensity * 0.8);     // Red
+        data[i + 1] = Math.floor(intensity * 0.6); // Green
+        data[i + 2] = Math.floor(intensity * 0.4); // Blue
+      }
       data[i + 3] = 255;      // Alpha
     }
     
     previewCtx.putImageData(imageData, x, y);
   }
   
-  function render3D(layer: any, x: number, y: number, width: number, height: number) {
+  function render3DWithAudioData(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array) {
     if (!previewCtx) return;
     
     const barCount = layer.settings.barCount || 32;
-    const barWidth = width / barCount;
-    const color = '#4a7c59';
+    const amplitude = layer.settings.amplitude || 100;
+    const style = layer.settings.style || 'bars';
+    const rotation = layer.settings.rotation || 0;
     
-    previewCtx.fillStyle = color;
+    const barWidth = width / barCount;
+    const samplesPerBar = Math.floor(dataArray.length / barCount);
+    
+    previewCtx.save();
+    previewCtx.translate(x + width / 2, y + height / 2);
+    previewCtx.rotate(rotation * Math.PI / 180);
     
     for (let i = 0; i < barCount; i++) {
-      const barHeight = Math.random() * height * 0.6;
-      const barX = x + i * barWidth;
-      const barY = y + height - barHeight;
+      let sum = 0;
+      const startIndex = i * samplesPerBar;
+      const endIndex = Math.min(startIndex + samplesPerBar, dataArray.length);
       
-      previewCtx.fillRect(barX, barY, barWidth * 0.8, barHeight);
+      for (let j = startIndex; j < endIndex; j++) {
+        sum += dataArray[j];
+      }
+      
+      const average = sum / (endIndex - startIndex);
+      const barHeight = (average / 255) * height * (amplitude / 100);
+      
+      // Color based on frequency
+      const hue = (i / barCount) * 360;
+      const color = `hsl(${hue}, 70%, 50%)`;
+      previewCtx.fillStyle = color;
+      
+      if (style === 'circular') {
+        const angle = (i / barCount) * Math.PI * 2;
+        const radius = Math.min(width, height) * 0.3;
+        const barX = Math.cos(angle) * radius - barWidth / 2;
+        const barY = Math.sin(angle) * radius - barHeight / 2;
+        
+        previewCtx.fillRect(barX, barY, barWidth, barHeight);
+      } else if (style === 'grid') {
+        const gridSize = Math.ceil(Math.sqrt(barCount));
+        const gridX = (i % gridSize) - gridSize / 2;
+        const gridY = Math.floor(i / gridSize) - gridSize / 2;
+        const spacing = Math.min(width, height) / gridSize;
+        
+        previewCtx.fillRect(
+          gridX * spacing - barWidth / 2,
+          gridY * spacing - barHeight / 2,
+          barWidth,
+          barHeight
+        );
+      } else {
+        // Bars style
+        const barX = (i - barCount / 2) * barWidth;
+        const barY = -barHeight / 2;
+        
+        previewCtx.fillRect(barX, barY, barWidth * 0.8, barHeight);
+      }
     }
+    
+    previewCtx.restore();
   }
   
-  function renderPianoRoll(layer: any, x: number, y: number, width: number, height: number) {
+  function renderPianoRollWithAudioData(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array) {
     if (!previewCtx) return;
     
     const noteColor = layer.settings.noteColor || '#ffffff';
+    const noteHeight = layer.settings.noteHeight || 20;
+    const velocityHeight = layer.settings.velocityHeight || 10;
+    
+    // Map frequency data to piano roll notes
+    const noteCount = 12; // Octave
+    const samplesPerNote = Math.floor(dataArray.length / noteCount);
+    
     previewCtx.fillStyle = noteColor;
     
-    // Draw some sample notes
-    for (let i = 0; i < 10; i++) {
-      const noteX = x + (i * width / 10);
-      const noteY = y + Math.random() * height;
-      const noteWidth = width / 15;
-      const noteHeight = height / 20;
+    for (let i = 0; i < noteCount; i++) {
+      let sum = 0;
+      const startIndex = i * samplesPerNote;
+      const endIndex = Math.min(startIndex + samplesPerNote, dataArray.length);
       
-      previewCtx.fillRect(noteX, noteY, noteWidth, noteHeight);
+      for (let j = startIndex; j < endIndex; j++) {
+        sum += dataArray[j];
+      }
+      
+      const average = sum / (endIndex - startIndex);
+      const intensity = average / 255;
+      
+      if (intensity > 0.1) { // Only draw if there's significant audio activity
+        const noteX = x + (i * width / noteCount);
+        const noteY = y + (1 - intensity) * height;
+        const noteWidth = width / noteCount * 0.8;
+        const noteHeightPx = noteHeight * intensity;
+        
+        previewCtx.fillRect(noteX, noteY, noteWidth, noteHeightPx);
+        
+        // Draw velocity indicator
+        if (velocityHeight > 0) {
+          previewCtx.fillStyle = `rgba(255, 255, 255, ${intensity})`;
+          previewCtx.fillRect(noteX, noteY - velocityHeight, noteWidth, velocityHeight);
+          previewCtx.fillStyle = noteColor;
+        }
+      }
     }
   }
   
-  function renderScore(layer: any, x: number, y: number, width: number, height: number) {
+  function renderScoreWithAudioData(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array) {
     if (!previewCtx) return;
     
     const noteColor = layer.settings.noteColor || '#000000';
+    const staffHeight = layer.settings.staffHeight || 40;
+    const noteSize = layer.settings.noteSize || 16;
+    
     previewCtx.fillStyle = noteColor;
-    previewCtx.font = '16px Arial';
+    previewCtx.font = `${noteSize}px Arial`;
     previewCtx.textAlign = 'center';
     
     // Draw staff lines
     previewCtx.strokeStyle = noteColor;
     previewCtx.lineWidth = 1;
+    const staffY = y + height / 2;
     for (let i = 0; i < 5; i++) {
-      const lineY = y + 50 + i * 10;
+      const lineY = staffY - staffHeight / 2 + i * 8;
       previewCtx.beginPath();
       previewCtx.moveTo(x, lineY);
       previewCtx.lineTo(x + width, lineY);
       previewCtx.stroke();
     }
     
-    // Draw some notes
-    previewCtx.fillText('♪', x + width / 4, y + 60);
-    previewCtx.fillText('♪', x + width / 2, y + 50);
-    previewCtx.fillText('♪', x + 3 * width / 4, y + 70);
+    // Map frequency data to musical notes
+    const noteCount = 8; // Number of notes to display
+    const samplesPerNote = Math.floor(dataArray.length / noteCount);
+    
+    for (let i = 0; i < noteCount; i++) {
+      let sum = 0;
+      const startIndex = i * samplesPerNote;
+      const endIndex = Math.min(startIndex + samplesPerNote, dataArray.length);
+      
+      for (let j = startIndex; j < endIndex; j++) {
+        sum += dataArray[j];
+      }
+      
+      const average = sum / (endIndex - startIndex);
+      const intensity = average / 255;
+      
+      if (intensity > 0.2) { // Only draw if there's significant audio activity
+        const noteX = x + (i * width / noteCount);
+        const noteY = staffY + (intensity - 0.5) * staffHeight;
+        
+        // Draw note symbol
+        previewCtx.fillText('♪', noteX, noteY);
+        
+        // Draw note stem if intensity is high
+        if (intensity > 0.7) {
+          previewCtx.beginPath();
+          previewCtx.moveTo(noteX + 5, noteY - 10);
+          previewCtx.lineTo(noteX + 5, noteY - 20);
+          previewCtx.stroke();
+        }
+      }
+    }
+  }
+
+  // Recording-specific rendering functions
+  function renderLayerWithAudioDataForRecording(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array, ctx: CanvasRenderingContext2D) {
+    if (!ctx) return;
+    
+    // Set layer background
+    ctx.fillStyle = layer.settings.backgroundColor || '#000000';
+    ctx.fillRect(x, y, width, height);
+    
+    // Render based on layer type with real audio data
+    switch (layer.type) {
+      case 'spectrum':
+        renderSpectrumForRecording(layer, x, y, width, height, dataArray, ctx);
+        break;
+      case 'waveform':
+        renderWaveformForRecording(layer, x, y, width, height, dataArray, ctx);
+        break;
+      case 'spectrogram':
+        renderSpectrogramForRecording(layer, x, y, width, height, dataArray, ctx);
+        break;
+      case '3d':
+        render3DForRecording(layer, x, y, width, height, dataArray, ctx);
+        break;
+      case 'pianoroll':
+        renderPianoRollForRecording(layer, x, y, width, height, dataArray, ctx);
+        break;
+      case 'score':
+        renderScoreForRecording(layer, x, y, width, height, dataArray, ctx);
+        break;
+    }
+  }
+
+  function renderSpectrumForRecording(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array, ctx: CanvasRenderingContext2D) {
+    if (!ctx) return;
+    
+    const barCount = layer.settings.barCount || 64;
+    const barColor = layer.settings.barColor || '#ffffff';
+    const minFreq = layer.settings.minFreq || 20;
+    const maxFreq = layer.settings.maxFreq || 14400;
+    const amplitudeScale = layer.settings.amplitudeScale || 100;
+    const barWidthPercent = layer.settings.barWidthPercent || 90;
+    const spectrumStyle = layer.settings.spectrumStyle || 'normal';
+    
+    // Calculate frequency range
+    const nyquist = 22050;
+    const minIndex = Math.floor(minFreq * dataArray.length / nyquist);
+    const maxIndex = Math.floor(maxFreq * dataArray.length / nyquist);
+    const frequencyRange = maxIndex - minIndex;
+    const samplesPerBar = Math.floor(frequencyRange / barCount);
+    
+    ctx.fillStyle = barColor;
+    ctx.strokeStyle = barColor;
+    
+    if (spectrumStyle === 'circular') {
+      const centerX = x + width / 2;
+      const centerY = y + height / 2;
+      const radius = Math.min(width, height) * 0.4;
+      
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        const startIndex = minIndex + (i * samplesPerBar);
+        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
+        
+        for (let j = startIndex; j < endIndex; j++) {
+          sum += dataArray[j];
+        }
+        
+        const average = sum / samplesPerBar;
+        const barHeight = (average / 255) * radius * (amplitudeScale / 100);
+        const angle = (i / barCount) * Math.PI * 2;
+        
+        const startX = centerX + (radius - barHeight) * Math.cos(angle);
+        const startY = centerY + (radius - barHeight) * Math.sin(angle);
+        const endX = centerX + radius * Math.cos(angle);
+        const endY = centerY + radius * Math.sin(angle);
+        
+        ctx.lineWidth = (2 * Math.PI * radius / barCount) * (barWidthPercent / 100);
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+      }
+    } else {
+      // Normal style
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        const startIndex = minIndex + (i * samplesPerBar);
+        const endIndex = Math.min(startIndex + samplesPerBar, maxIndex);
+        
+        for (let j = startIndex; j < endIndex; j++) {
+          sum += dataArray[j];
+        }
+        
+        const average = sum / samplesPerBar;
+        const totalBarWidth = width / barCount;
+        const actualBarWidth = totalBarWidth * (barWidthPercent / 100);
+        const barStartX = x + i * totalBarWidth + (totalBarWidth - actualBarWidth) / 2;
+        
+        const barHeight = (average / 255) * height * (amplitudeScale / 100);
+        ctx.fillRect(
+          barStartX,
+          y + height - barHeight,
+          actualBarWidth,
+          barHeight
+        );
+      }
+    }
+  }
+
+  function renderWaveformForRecording(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array, ctx: CanvasRenderingContext2D) {
+    if (!ctx) return;
+    
+    const color = layer.settings.color || '#ffffff';
+    const amplitude = layer.settings.amplitude || 100;
+    const style = layer.settings.style || 'line';
+    
+    // For recording, we'll use frequency data as a proxy for waveform
+    const samplesPerPoint = Math.floor(dataArray.length / width);
+    
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    const centerY = y + height / 2;
+    
+    for (let i = 0; i < width; i++) {
+      let sum = 0;
+      const startIndex = i * samplesPerPoint;
+      const endIndex = Math.min(startIndex + samplesPerPoint, dataArray.length);
+      
+      for (let j = startIndex; j < endIndex; j++) {
+        sum += dataArray[j];
+      }
+      
+      const average = sum / (endIndex - startIndex);
+      const waveY = centerY + (average / 255 - 0.5) * height * (amplitude / 100);
+      
+      if (i === 0) {
+        ctx.moveTo(x + i, waveY);
+      } else {
+        ctx.lineTo(x + i, waveY);
+      }
+    }
+    
+    if (style === 'fill') {
+      ctx.lineTo(x + width, y + height);
+      ctx.lineTo(x, y + height);
+      ctx.fillStyle = color;
+      ctx.fill();
+    } else {
+      ctx.stroke();
+    }
+  }
+
+  function renderSpectrogramForRecording(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array, ctx: CanvasRenderingContext2D) {
+    if (!ctx) return;
+    
+    const colorMap = layer.settings.colorMap || 'viridis';
+    
+    // Create spectrogram visualization using frequency data
+    const imageData = ctx.createImageData(width, height);
+    const data = imageData.data;
+    
+    for (let i = 0; i < data.length; i += 4) {
+      const pixelIndex = i / 4;
+      const xPos = pixelIndex % width;
+      const yPos = Math.floor(pixelIndex / width);
+      
+      // Map y position to frequency data
+      const freqIndex = Math.floor((1 - yPos / height) * dataArray.length);
+      const intensity = dataArray[freqIndex] || 0;
+      
+      // Apply color mapping
+      if (colorMap === 'hot') {
+        data[i] = intensity;
+        data[i + 1] = Math.max(0, intensity - 85);
+        data[i + 2] = Math.max(0, intensity - 170);
+      } else if (colorMap === 'cool') {
+        data[i] = Math.max(0, intensity - 170);
+        data[i + 1] = Math.max(0, intensity - 85);
+        data[i + 2] = intensity;
+      } else if (colorMap === 'grayscale') {
+        data[i] = intensity;
+        data[i + 1] = intensity;
+        data[i + 2] = intensity;
+      } else {
+        // Viridis-like color mapping
+        data[i] = Math.floor(intensity * 0.8);
+        data[i + 1] = Math.floor(intensity * 0.6);
+        data[i + 2] = Math.floor(intensity * 0.4);
+      }
+      data[i + 3] = 255;
+    }
+    
+    ctx.putImageData(imageData, x, y);
+  }
+
+  function render3DForRecording(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array, ctx: CanvasRenderingContext2D) {
+    if (!ctx) return;
+    
+    const barCount = layer.settings.barCount || 32;
+    const amplitude = layer.settings.amplitude || 100;
+    const style = layer.settings.style || 'bars';
+    const rotation = layer.settings.rotation || 0;
+    
+    const barWidth = width / barCount;
+    const samplesPerBar = Math.floor(dataArray.length / barCount);
+    
+    ctx.save();
+    ctx.translate(x + width / 2, y + height / 2);
+    ctx.rotate(rotation * Math.PI / 180);
+    
+    for (let i = 0; i < barCount; i++) {
+      let sum = 0;
+      const startIndex = i * samplesPerBar;
+      const endIndex = Math.min(startIndex + samplesPerBar, dataArray.length);
+      
+      for (let j = startIndex; j < endIndex; j++) {
+        sum += dataArray[j];
+      }
+      
+      const average = sum / (endIndex - startIndex);
+      const barHeight = (average / 255) * height * (amplitude / 100);
+      
+      // Color based on frequency
+      const hue = (i / barCount) * 360;
+      const color = `hsl(${hue}, 70%, 50%)`;
+      ctx.fillStyle = color;
+      
+      const barX = (i - barCount / 2) * barWidth;
+      const barY = -barHeight / 2;
+      
+      ctx.fillRect(barX, barY, barWidth * 0.8, barHeight);
+    }
+    
+    ctx.restore();
+  }
+
+  function renderPianoRollForRecording(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array, ctx: CanvasRenderingContext2D) {
+    if (!ctx) return;
+    
+    const noteColor = layer.settings.noteColor || '#ffffff';
+    const noteHeight = layer.settings.noteHeight || 20;
+    const velocityHeight = layer.settings.velocityHeight || 10;
+    
+    // Map frequency data to piano roll notes
+    const noteCount = 12;
+    const samplesPerNote = Math.floor(dataArray.length / noteCount);
+    
+    ctx.fillStyle = noteColor;
+    
+    for (let i = 0; i < noteCount; i++) {
+      let sum = 0;
+      const startIndex = i * samplesPerNote;
+      const endIndex = Math.min(startIndex + samplesPerNote, dataArray.length);
+      
+      for (let j = startIndex; j < endIndex; j++) {
+        sum += dataArray[j];
+      }
+      
+      const average = sum / (endIndex - startIndex);
+      const intensity = average / 255;
+      
+      if (intensity > 0.1) {
+        const noteX = x + (i * width / noteCount);
+        const noteY = y + (1 - intensity) * height;
+        const noteWidth = width / noteCount * 0.8;
+        const noteHeightPx = noteHeight * intensity;
+        
+        ctx.fillRect(noteX, noteY, noteWidth, noteHeightPx);
+        
+        if (velocityHeight > 0) {
+          ctx.fillStyle = `rgba(255, 255, 255, ${intensity})`;
+          ctx.fillRect(noteX, noteY - velocityHeight, noteWidth, velocityHeight);
+          ctx.fillStyle = noteColor;
+        }
+      }
+    }
+  }
+
+  function renderScoreForRecording(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array, ctx: CanvasRenderingContext2D) {
+    if (!ctx) return;
+    
+    const noteColor = layer.settings.noteColor || '#000000';
+    const staffHeight = layer.settings.staffHeight || 40;
+    const noteSize = layer.settings.noteSize || 16;
+    
+    ctx.fillStyle = noteColor;
+    ctx.font = `${noteSize}px Arial`;
+    ctx.textAlign = 'center';
+    
+    // Draw staff lines
+    ctx.strokeStyle = noteColor;
+    ctx.lineWidth = 1;
+    const staffY = y + height / 2;
+    for (let i = 0; i < 5; i++) {
+      const lineY = staffY - staffHeight / 2 + i * 8;
+      ctx.beginPath();
+      ctx.moveTo(x, lineY);
+      ctx.lineTo(x + width, lineY);
+      ctx.stroke();
+    }
+    
+    // Map frequency data to musical notes
+    const noteCount = 8;
+    const samplesPerNote = Math.floor(dataArray.length / noteCount);
+    
+    for (let i = 0; i < noteCount; i++) {
+      let sum = 0;
+      const startIndex = i * samplesPerNote;
+      const endIndex = Math.min(startIndex + samplesPerNote, dataArray.length);
+      
+      for (let j = startIndex; j < endIndex; j++) {
+        sum += dataArray[j];
+      }
+      
+      const average = sum / (endIndex - startIndex);
+      const intensity = average / 255;
+      
+      if (intensity > 0.2) {
+        const noteX = x + (i * width / noteCount);
+        const noteY = staffY + (intensity - 0.5) * staffHeight;
+        
+        ctx.fillText('♪', noteX, noteY);
+        
+        if (intensity > 0.7) {
+          ctx.beginPath();
+          ctx.moveTo(noteX + 5, noteY - 10);
+          ctx.lineTo(noteX + 5, noteY - 20);
+          ctx.stroke();
+        }
+      }
+    }
   }
 
   function handleLayerMouseDown(event: MouseEvent, layerId: string) {
@@ -797,24 +1367,33 @@
     selectedLayer = layerId;
     
     const layer = layers.find(l => l.id === layerId);
-    if (layer) {
-      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (layer && previewCanvas) {
+      const rect = previewCanvas.getBoundingClientRect();
+      const scaleX = previewCanvas.width / rect.width;
+      const scaleY = previewCanvas.height / rect.height;
+      
       dragOffset = {
-        x: event.clientX - rect.left - layer.x,
-        y: event.clientY - rect.top - layer.y
+        x: (event.clientX - rect.left) * scaleX - (layer.x / 100) * previewCanvas.width,
+        y: (event.clientY - rect.top) * scaleY - (layer.y / 100) * previewCanvas.height
       };
     }
   }
 
   function handlePreviewMouseMove(event: MouseEvent) {
-    if (!isDragging || !selectedLayer) return;
+    if (!isDragging || !selectedLayer || !previewCanvas) return;
     
-    const previewRect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const newX = event.clientX - previewRect.left - dragOffset.x;
-    const newY = event.clientY - previewRect.top - dragOffset.y;
+    const rect = previewCanvas.getBoundingClientRect();
+    const scaleX = previewCanvas.width / rect.width;
+    const scaleY = previewCanvas.height / rect.height;
     
-    updateLayerProperty(selectedLayer, 'x', Math.max(0, newX));
-    updateLayerProperty(selectedLayer, 'y', Math.max(0, newY));
+    const newX = ((event.clientX - rect.left) * scaleX - dragOffset.x) / previewCanvas.width * 100;
+    const newY = ((event.clientY - rect.top) * scaleY - dragOffset.y) / previewCanvas.height * 100;
+    
+    const layer = layers.find(l => l.id === selectedLayer);
+    if (layer) {
+      updateLayerProperty(selectedLayer, 'x', Math.max(0, Math.min(100 - layer.width, newX)));
+      updateLayerProperty(selectedLayer, 'y', Math.max(0, Math.min(100 - layer.height, newY)));
+    }
   }
 
   function handlePreviewMouseUp() {
@@ -822,6 +1401,11 @@
   }
 
   // Export functionality
+  let mediaRecorder: MediaRecorder | null = null;
+  let chunks: Blob[] = [];
+  let audioDuration = 0;
+  let startTime = 0;
+
   async function exportComposition() {
     if (!selectedFile) {
       alert('Please select a file first.');
@@ -837,25 +1421,135 @@
     progress = 0;
     processingMessage = 'Preparing composition...';
 
-    try {
-      // Simulate processing with progress updates
-      const progressInterval = setInterval(() => {
-        progress += Math.random() * 10;
-        if (progress >= 100) {
-          progress = 100;
-          clearInterval(progressInterval);
-          processingMessage = 'Composition complete!';
-          setTimeout(() => {
-            isProcessing = false;
-            progress = 0;
-            processingMessage = '';
-          }, 1000);
-        }
-      }, 200);
+    // Stop preview if playing
+    if (isPreviewPlaying) {
+      stopPreview();
+    }
 
-      // Here you would implement the actual composition rendering
-      // For now, we'll just simulate the process
-      
+    try {
+      // Initialize audio context for recording
+      const audioContext = new AudioContext();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+
+      // Load and prepare audio file
+      const audioBuffer = await selectedFile.arrayBuffer();
+      const decodedAudio = await audioContext.decodeAudioData(audioBuffer);
+      const audioSource = audioContext.createBufferSource();
+      audioSource.buffer = decodedAudio;
+
+      audioDuration = decodedAudio.duration;
+      startTime = audioContext.currentTime;
+
+      // Set up canvas for recording
+      const recordingCanvas = document.createElement('canvas');
+      recordingCanvas.width = parseInt(globalSettings.resolution.split('x')[0]);
+      recordingCanvas.height = parseInt(globalSettings.resolution.split('x')[1]);
+      const recordingCtx = recordingCanvas.getContext('2d');
+
+      if (!recordingCtx) {
+        throw new Error('Could not get canvas context');
+      }
+
+      // Connect audio
+      audioSource.connect(analyser);
+      audioSource.connect(audioContext.destination);
+
+      // Set up media recording
+      const stream = recordingCanvas.captureStream();
+      const audioStream = audioContext.createMediaStreamDestination();
+      audioSource.connect(audioStream);
+
+      const combinedStream = new MediaStream([
+        ...stream.getVideoTracks(),
+        ...audioStream.stream.getAudioTracks()
+      ]);
+
+      // Determine supported mime type
+      let mimeType = 'video/webm;codecs=vp8,opus';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/webm';
+      }
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/mp4';
+      }
+
+      mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType: mimeType,
+        videoBitsPerSecond: 2500000
+      });
+      chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = createVideoFile;
+
+      mediaRecorder.start(100); // Collect data every 100ms
+      audioSource.start(0);
+
+      // Start rendering loop
+      function renderFrame() {
+        if (!isProcessing || !recordingCtx || !analyser) return;
+
+        // Clear canvas
+        recordingCtx.fillStyle = globalSettings.backgroundColor;
+        recordingCtx.fillRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+
+        // Get audio data
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(dataArray);
+
+        // Render each visible layer
+        layers.forEach(layer => {
+          if (!layer.visible) return;
+
+          // Calculate layer position and size in pixels
+          const x = (layer.x / 100) * recordingCanvas.width;
+          const y = (layer.y / 100) * recordingCanvas.height;
+          const width = (layer.width / 100) * recordingCanvas.width;
+          const height = (layer.height / 100) * recordingCanvas.height;
+
+          // Save context state
+          recordingCtx.save();
+          recordingCtx.globalAlpha = layer.opacity;
+
+          // Render layer with audio data
+          renderLayerWithAudioDataForRecording(layer, x, y, width, height, dataArray, recordingCtx);
+
+          // Restore context state
+          recordingCtx.restore();
+        });
+
+        // Update progress
+        if (audioContext && audioDuration > 0) {
+          const elapsed = audioContext.currentTime - startTime;
+          progress = Math.min(100, (elapsed / audioDuration) * 100);
+          processingMessage = `Rendering... ${Math.round(progress)}%`;
+        }
+
+        // Continue rendering
+        if (isProcessing) {
+          requestAnimationFrame(renderFrame);
+        }
+      }
+
+      renderFrame();
+
+      // Stop when audio ends
+      audioSource.onended = () => {
+        progress = 100;
+        processingMessage = 'Finalizing...';
+        if (mediaRecorder) mediaRecorder.stop();
+        if (analyser) analyser.disconnect();
+        audioSource.disconnect();
+        // Note: Don't close audioContext or clear chunks here
+        // They will be cleaned up in createVideoFile() after the video is saved
+      };
+
     } catch (error) {
       console.error('Export error:', error);
       alert('Error exporting composition. Please try again.');
@@ -863,14 +1557,94 @@
     }
   }
 
+  async function createVideoFile() {
+    try {
+      const blob = new Blob(chunks);
+      // Always use .webm extension as MediaRecorder outputs WebM format
+      const defaultFileName = `multi-view-composition.webm`;
+      
+      const filePath = await save({
+        filters: [
+          { name: 'WebM Video', extensions: ['webm'] },
+          { name: 'All Files', extensions: ['*'] }
+        ],
+        defaultPath: defaultFileName
+      });
+
+      if (!filePath) {
+        console.log('File save cancelled');
+        // Clean up resources
+        chunks = [];
+        isProcessing = false;
+        return;
+      }
+
+      const arrayBuffer = await blob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      await writeFile(filePath, uint8Array);
+      
+      alert(`WebM video saved successfully: ${filePath}`);
+
+      // Auto-convert if enabled and FFmpeg is available
+      if (globalSettings.convertAfterRecording && globalSettings.exportFormat !== 'webm') {
+        processingMessage = 'Converting video...';
+        try {
+          const convertedPath = await invoke<string>('convert_video', {
+            inputPath: filePath,
+            outputFormat: globalSettings.exportFormat
+          });
+          alert(`Converted to ${globalSettings.exportFormat.toUpperCase()}: ${convertedPath}`);
+        } catch (error) {
+          console.error('Conversion error:', error);
+          alert(`Conversion failed: ${error}\n\nYou can manually convert the WebM file using VLC or FFmpeg.`);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error saving video:', error);
+      alert(`Error saving video: ${error}`);
+    } finally {
+      // Clean up resources after video is saved
+      chunks = [];
+      isProcessing = false;
+      progress = 0;
+      processingMessage = '';
+      
+      // Reset preview state
+      isPreviewPlaying = false;
+    }
+  }
+
+  // Update canvas size when aspect ratio changes
+  function updateCanvasSize() {
+    if (previewCanvas) {
+      previewCanvas.width = canvasDimensions.width;
+      previewCanvas.height = canvasDimensions.height;
+      
+      // Redraw if preview is playing
+      if (isPreviewPlaying) {
+        startVisualization();
+      }
+    }
+  }
+
+  // Watch for aspect ratio changes
+  $: if (canvasDimensions) {
+    updateCanvasSize();
+  }
+
   // Cleanup
   onMount(() => {
     // Initialize canvas context
     if (previewCanvas) {
       previewCtx = previewCanvas.getContext('2d');
+      updateCanvasSize();
     }
     
     return () => {
+      // Stop preview if playing
+      stopPreview();
+      
       if (filePreview) {
         URL.revokeObjectURL(filePreview);
       }
@@ -878,10 +1652,6 @@
       loadedFiles.forEach(fileData => {
         URL.revokeObjectURL(fileData.preview);
       });
-      // Clean up animation
-      if (previewAnimationId) {
-        cancelAnimationFrame(previewAnimationId);
-      }
     };
   });
 </script>
@@ -1050,11 +1820,11 @@
           <!-- Preview Button -->
           <button 
             class="preview-btn" 
-            disabled={!selectedFile || layers.length === 0}
-            on:click={startPreview}
-            title="Start Preview"
+            disabled={!selectedFile || layers.length === 0 || isProcessing}
+            on:click={isPreviewPlaying ? stopPreview : startPreview}
+            title={isPreviewPlaying ? "Stop Preview" : "Start Preview"}
           >
-            Preview
+            {isPreviewPlaying ? 'Stop Preview' : 'Preview'}
           </button>
           
           <!-- Start Processing & Record Button -->
@@ -1085,8 +1855,9 @@
             <canvas 
               bind:this={previewCanvas}
               class="visualization-canvas"
-              width="800"
-              height="600"
+              width={canvasDimensions.width}
+              height={canvasDimensions.height}
+              style="max-width: 100%; max-height: 100%; object-fit: contain;"
             ></canvas>
             
             {#if layers.length === 0}
@@ -1100,13 +1871,14 @@
                   class="layer-preview" 
                   class:selected={selectedLayer === layer.id}
                   class:invisible={!layer.visible}
+                  class:dragging={isDragging && selectedLayer === layer.id}
                   role="button"
                   tabindex="0"
                   style="
-                    left: {layer.x}px; 
-                    top: {layer.y}px; 
-                    width: {layer.width}px; 
-                    height: {layer.height}px;
+                    left: {layer.x}%; 
+                    top: {layer.y}%; 
+                    width: {layer.width}%; 
+                    height: {layer.height}%;
                     opacity: {layer.opacity};
                   "
                   on:mousedown={(e) => handleLayerMouseDown(e, layer.id)}
@@ -1139,7 +1911,11 @@
 
         <!-- Settings Panel -->
         <div class="settings-panel">
-        {#if isProjectLayerSelected}
+        <!-- Debug info -->
+        <div style="color: #8b6f47; font-size: 0.7rem; margin-bottom: 10px;">
+          Debug: selectedLayer={selectedLayer}, isProjectLayerSelected={isProjectLayerSelected}
+        </div>
+        {#if isProjectLayerSelected || (!selectedLayer && !isProjectLayerSelected)}
           <!-- Global Settings -->
           <div class="settings-header">
               <h4>Global Settings</h4>
@@ -1200,206 +1976,267 @@
           {#if layer}
             <div class="settings-header">
               <h4>Layer Settings: {layer.name}</h4>
+              <p style="color: #8b6f47; font-size: 0.8rem;">Type: {layer.type}</p>
+              <p style="color: #8b6f47; font-size: 0.7rem;">ID: {layer.id}</p>
+              <p style="color: #8b6f47; font-size: 0.7rem;">Full Layer: {JSON.stringify(layer, null, 2)}</p>
             </div>
             
             <div class="settings-content">
-              <div class="settings-layout">
-                <!-- Left: Required Settings -->
-                <div class="required-settings">
-                  <h5>Required Settings</h5>
-                  <div class="setting-group">
-                    <div class="setting-row">
-                      <label>Name:</label>
-                      <input 
-                        type="text" 
-                        bind:value={layer.name}
-                        on:input={() => updateLayerProperty(layer.id, 'name', layer.name)}
-                      />
-                    </div>
-                    <div class="setting-row">
-                      <label>Position X:</label>
-                      <input 
-                        type="number" 
-                        bind:value={layer.x}
-                        on:input={() => updateLayerProperty(layer.id, 'x', layer.x)}
-                      />
-                    </div>
-                    <div class="setting-row">
-                      <label>Position Y:</label>
-                      <input 
-                        type="number" 
-                        bind:value={layer.y}
-                        on:input={() => updateLayerProperty(layer.id, 'y', layer.y)}
-                      />
-                    </div>
-                    <div class="setting-row">
-                      <label>Width:</label>
-                      <input 
-                        type="number" 
-                        bind:value={layer.width}
-                        on:input={() => updateLayerProperty(layer.id, 'width', layer.width)}
-                      />
-                    </div>
-                    <div class="setting-row">
-                      <label>Height:</label>
-                      <input 
-                        type="number" 
-                        bind:value={layer.height}
-                        on:input={() => updateLayerProperty(layer.id, 'height', layer.height)}
-                      />
-                    </div>
-                  </div>
-                </div>
+              <div class="setting-group">
+                <label class="setting-label">
+                  <span>Name:</span>
+                  <input 
+                    type="text" 
+                    bind:value={layer.name}
+                    on:input={() => updateLayerProperty(layer.id, 'name', layer.name)}
+                  />
+                </label>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">
+                  <span>Position X:</span>
+                  <input 
+                    type="number" 
+                    bind:value={layer.x}
+                    on:input={() => updateLayerProperty(layer.id, 'x', layer.x)}
+                  />
+                </label>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">
+                  <span>Position Y:</span>
+                  <input 
+                    type="number" 
+                    bind:value={layer.y}
+                    on:input={() => updateLayerProperty(layer.id, 'y', layer.y)}
+                  />
+                </label>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">
+                  <span>Width:</span>
+                  <input 
+                    type="number" 
+                    bind:value={layer.width}
+                    on:input={() => updateLayerProperty(layer.id, 'width', layer.width)}
+                  />
+                </label>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">
+                  <span>Height:</span>
+                  <input 
+                    type="number" 
+                    bind:value={layer.height}
+                    on:input={() => updateLayerProperty(layer.id, 'height', layer.height)}
+                  />
+                </label>
+              </div>
                 
-                <!-- Right: Mode-specific Settings -->
-                <div class="mode-specific-settings">
-                  <h5>{layer.type.charAt(0).toUpperCase() + layer.type.slice(1)} Settings</h5>
-                  <div class="setting-group">
-                {#if layer.type === 'spectrum'}
-                  <div class="setting-row">
-                    <label>Min Frequency (Hz):</label>
+              <!-- Mode-specific Settings -->
+              {#if layer.type === 'spectrum'}
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Min Frequency (Hz):</span>
                     <input type="number" bind:value={layer.settings.minFreq} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="20" max="20000">
-                  </div>
-                  <div class="setting-row">
-                    <label>Max Frequency (Hz):</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Max Frequency (Hz):</span>
                     <input type="number" bind:value={layer.settings.maxFreq} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="20" max="20000">
-                  </div>
-                  <div class="setting-row">
-                    <label>Background Color:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Background Color:</span>
                     <input type="color" bind:value={layer.settings.backgroundColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>Bar Color:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Bar Color:</span>
                     <input type="color" bind:value={layer.settings.barColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>FFT Size:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>FFT Size:</span>
                     <select bind:value={layer.settings.fftSize} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
                       <option value="512">512</option>
                       <option value="1024">1024</option>
                       <option value="2048">2048</option>
                       <option value="4096">4096</option>
                     </select>
-                  </div>
-                  <div class="setting-row">
-                    <label>Bar Count:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Bar Count:</span>
                     <input type="number" bind:value={layer.settings.barCount} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="16" max="256">
-                  </div>
-                  <div class="setting-row">
-                    <label>Spectrum Style:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Spectrum Style:</span>
                     <select bind:value={layer.settings.spectrumStyle} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
                       <option value="normal">Normal</option>
                       <option value="center">Center</option>
                       <option value="circular">Circular</option>
                       <option value="line">Line</option>
                     </select>
-                  </div>
-                  <div class="setting-row">
-                    <label>Bar Width (%):</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Bar Width (%):</span>
                     <input type="range" bind:value={layer.settings.barWidthPercent} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="10" max="100">
                     <span>{layer.settings.barWidthPercent}%</span>
-                  </div>
-                  <div class="setting-row">
-                    <label>Amplitude Scale (%):</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Amplitude Scale (%):</span>
                     <input type="range" bind:value={layer.settings.amplitudeScale} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="10" max="200">
                     <span>{layer.settings.amplitudeScale}%</span>
-                  </div>
+                  </label>
+                </div>
                 {:else if layer.type === 'waveform'}
-                  <div class="setting-row">
-                    <label>Color:</label>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Color:</span>
                     <input type="color" bind:value={layer.settings.color} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>Background Color:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Background Color:</span>
                     <input type="color" bind:value={layer.settings.backgroundColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>Style:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Style:</span>
                     <select bind:value={layer.settings.style} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
                       <option value="line">Line</option>
                       <option value="fill">Fill</option>
                     </select>
-                  </div>
-                  <div class="setting-row">
-                    <label>Amplitude (%):</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Amplitude (%):</span>
                     <input type="range" bind:value={layer.settings.amplitude} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="10" max="200">
                     <span>{layer.settings.amplitude}%</span>
-                  </div>
+                  </label>
+                </div>
                 {:else if layer.type === 'spectrogram'}
-                  <div class="setting-row">
-                    <label>Color Map:</label>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Color Map:</span>
                     <select bind:value={layer.settings.colormap} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
                       <option value="viridis">Viridis</option>
                       <option value="hot">Hot</option>
                       <option value="cool">Cool</option>
                       <option value="grayscale">Grayscale</option>
                     </select>
-                  </div>
+                  </label>
+                </div>
                 {:else if layer.type === '3d'}
-                  <div class="setting-row">
-                    <label>Background Color:</label>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Background Color:</span>
                     <input type="color" bind:value={layer.settings.backgroundColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>Style:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Style:</span>
                     <select bind:value={layer.settings.style} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
                       <option value="bars">Bars</option>
                       <option value="circular">Circular</option>
                       <option value="grid">Grid</option>
                     </select>
-                  </div>
-                  <div class="setting-row">
-                    <label>Bar Count:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Bar Count:</span>
                     <input type="number" bind:value={layer.settings.barCount} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="16" max="128">
-                  </div>
-                  <div class="setting-row">
-                    <label>Amplitude (%):</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Amplitude (%):</span>
                     <input type="range" bind:value={layer.settings.amplitude} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="10" max="200">
                     <span>{layer.settings.amplitude}%</span>
-                  </div>
-                  <div class="setting-row">
-                    <label>Rotation:</label>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Rotation:</span>
                     <input type="range" bind:value={layer.settings.rotation} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="0" max="360">
                     <span>{layer.settings.rotation}°</span>
-                  </div>
-                {:else if layer.type === 'pianoroll'}
-                  <div class="setting-row">
-                    <label>Background Color:</label>
-                    <input type="color" bind:value={layer.settings.backgroundColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>Note Color:</label>
-                    <input type="color" bind:value={layer.settings.noteColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>Note Height:</label>
-                    <input type="number" bind:value={layer.settings.noteHeight} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="10" max="50">
-                  </div>
-                  <div class="setting-row">
-                    <label>Velocity Height:</label>
-                    <input type="number" bind:value={layer.settings.velocityHeight} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="5" max="30">
-                  </div>
-                {:else if layer.type === 'score'}
-                  <div class="setting-row">
-                    <label>Background Color:</label>
-                    <input type="color" bind:value={layer.settings.backgroundColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>Note Color:</label>
-                    <input type="color" bind:value={layer.settings.noteColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
-                  </div>
-                  <div class="setting-row">
-                    <label>Staff Height:</label>
-                    <input type="number" bind:value={layer.settings.staffHeight} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="20" max="80">
-                  </div>
-                  <div class="setting-row">
-                    <label>Note Size:</label>
-                    <input type="number" bind:value={layer.settings.noteSize} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="8" max="32">
-                  </div>
-                {/if}
-                  </div>
+                  </label>
                 </div>
-              </div>
+                {:else if layer.type === 'pianoroll'}
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Background Color:</span>
+                    <input type="color" bind:value={layer.settings.backgroundColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Note Color:</span>
+                    <input type="color" bind:value={layer.settings.noteColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Note Height:</span>
+                    <input type="number" bind:value={layer.settings.noteHeight} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="10" max="50">
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Velocity Height:</span>
+                    <input type="number" bind:value={layer.settings.velocityHeight} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="5" max="30">
+                  </label>
+                </div>
+                {:else if layer.type === 'score'}
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Background Color:</span>
+                    <input type="color" bind:value={layer.settings.backgroundColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Note Color:</span>
+                    <input type="color" bind:value={layer.settings.noteColor} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)}>
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Staff Height:</span>
+                    <input type="number" bind:value={layer.settings.staffHeight} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="20" max="80">
+                  </label>
+                </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>Note Size:</span>
+                    <input type="number" bind:value={layer.settings.noteSize} on:change={() => updateLayerProperty(layer.id, 'settings', layer.settings)} min="8" max="32">
+                  </label>
+                </div>
+                {/if}
+            </div>
+          {:else}
+            <div class="settings-header">
+              <h4>No Layer Selected</h4>
+            </div>
+            <div class="settings-content">
+              <p style="color: #8b6f47;">Please select a layer to view its settings.</p>
             </div>
           {/if}
         {:else}
@@ -2415,6 +3252,7 @@
     position: relative;
     overflow: hidden;
     min-height: 300px;
+    cursor: crosshair;
   }
 
   .preview-canvas {
@@ -2455,8 +3293,10 @@
     border-radius: 8px;
     cursor: move;
     transition: all 0.3s ease;
-    min-width: 150px;
-    min-height: 100px;
+    min-width: 80px;
+    min-height: 60px;
+    z-index: 10;
+    user-select: none;
   }
 
   .layer-preview:hover {
@@ -2467,6 +3307,12 @@
   .layer-preview.selected {
     border-color: #f5e6d3;
     box-shadow: 0 0 20px rgba(212, 165, 116, 0.8);
+  }
+
+  .layer-preview.dragging {
+    transform: scale(1.05);
+    box-shadow: 0 0 25px rgba(212, 165, 116, 1);
+    border-color: #f5e6d3;
   }
 
   .layer-preview.invisible {
