@@ -4,15 +4,8 @@
   import { writeFile } from '@tauri-apps/plugin-fs';
   import { invoke } from '@tauri-apps/api/core';
 
-  // State management
-  let selectedFile: File | null = null;
-  let filePreview: string | null = null;
-  let isProcessing = false;
-  let progress = 0;
-  let processingMessage = '';
-
-  // File management
-  let loadedFiles: Array<{
+  // File management types
+  type LoadedFile = {
     id: string;
     name: string;
     type: 'audio' | 'midi';
@@ -20,17 +13,25 @@
     preview: string;
     duration?: number;
     size: number;
-  }> = [];
+  };
 
+  // File management state（$state で宣言しないと追加・削除・選択時に UI が更新されない）
+  let selectedFile = $state<File | null>(null);
+  let filePreview = $state<string | null>(null);
+  let loadedFiles = $state<LoadedFile[]>([]);
   let nextFileId = 1;
-  
-  // ファイル読み込み進捗
-  let isLoading = false;
-  let loadingProgress = 0;
-  let loadingStatus = '';
 
-  // Multi-view composer state
-  let layers: Array<{
+  let isLoading = $state(false);
+  let loadingProgress = $state(0);
+  let loadingStatus = $state('');
+
+  // Processing state（エクスポート・録画進捗）
+  let isProcessing = $state(false);
+  let progress = $state(0);
+  let processingMessage = $state('');
+
+  // Multi-view composer state（$state で宣言しないとモード追加時に UI が更新されない）
+  type Layer = {
     id: string;
     type: 'spectrum' | 'waveform' | 'spectrogram' | '3d' | 'pianoroll' | 'score';
     name: string;
@@ -41,24 +42,86 @@
     width: number;
     height: number;
     settings: any;
-    assignedFileId?: string; // 割り当てられたファイルのID
-  }> = [];
+    assignedFileId?: string;
+  };
+  let layers = $state<Layer[]>([]);
 
   let nextLayerId = 1;
-  let selectedLayer: string | null = null;
-  let isDragging = false;
+  let selectedLayer = $state<string | null>(null);
+  let isDragging = $state(false);
   let dragOffset = { x: 0, y: 0 };
+  let previewCanvasContainer: HTMLElement | null = null;
+  type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+  let resizingLayer = $state<{ layerId: string; handle: ResizeHandle; startX: number; startY: number; start: { x: number; y: number; width: number; height: number } } | null>(null);
   
-  // Project layer state
-  let isProjectLayerSelected = false;
-  
+  // Project layer state（$state にしないとプロジェクト→レイヤー切替で設定パネルが更新されない）
+  let isProjectLayerSelected = $state(false);
+
+  // Resizable panel widths (px)
+  let panelWidths = $state({ modes: 200, layers: 240, files: 220 });
+  const PANEL_MIN = 140;
+  const PANEL_MAX = 420;
+  let resizing = $state<'modes' | 'layers' | 'files' | 'settings' | null>(null);
+  let resizeStart = { x: 0, y: 0, modes: 200, layers: 240, files: 220, settingsHeight: 280 };
+
+  // パラメータ（設定）パネルの縦幅 (px)
+  let settingsPanelHeight = $state(280);
+  const SETTINGS_MIN = 120;
+  const SETTINGS_MAX = 520;
+
+  function startResize(which: 'modes' | 'layers' | 'files' | 'settings', e: MouseEvent) {
+    e.preventDefault();
+    resizing = which;
+    resizeStart = {
+      x: e.clientX,
+      y: e.clientY,
+      modes: panelWidths.modes,
+      layers: panelWidths.layers,
+      files: panelWidths.files,
+      settingsHeight: settingsPanelHeight
+    };
+  }
+
+  function onResizeMove(e: MouseEvent) {
+    if (resizing === null) return;
+    if (resizing === 'settings') {
+      const dy = e.clientY - resizeStart.y;
+      const h = Math.max(SETTINGS_MIN, Math.min(SETTINGS_MAX, resizeStart.settingsHeight - dy));
+      settingsPanelHeight = h;
+      return;
+    }
+    const dx = e.clientX - resizeStart.x;
+    if (resizing === 'modes') {
+      const w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, resizeStart.modes + dx));
+      panelWidths = { ...panelWidths, modes: w };
+    } else if (resizing === 'layers') {
+      const w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, resizeStart.layers + dx));
+      panelWidths = { ...panelWidths, layers: w };
+    } else if (resizing === 'files') {
+      const w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, resizeStart.files - dx));
+      panelWidths = { ...panelWidths, files: w };
+    }
+  }
+
+  function onResizeEnd() {
+    resizing = null;
+  }
+
   // Preview controls
   let previewCanvas: HTMLCanvasElement;
   let previewCtx: CanvasRenderingContext2D | null = null;
-  
 
-  // Global settings
-  let globalSettings = {
+  // Aspect ratio options (must be before canvasDimensions)
+  const aspectRatios = [
+    { value: '16:9', label: '16:9 (Widescreen)', width: 1920, height: 1080 },
+    { value: '4:3', label: '4:3 (Standard)', width: 1024, height: 768 },
+    { value: '1:1', label: '1:1 (Square)', width: 1080, height: 1080 },
+    { value: '21:9', label: '21:9 (Ultrawide)', width: 2560, height: 1080 },
+    { value: '9:16', label: '9:16 (Vertical)', width: 1080, height: 1920 }
+  ];
+
+  // Global settings (reactive for preview aspect ratio)
+  let globalSettings = $state({
     aspectRatio: '16:9',
     resolution: '1920x1080',
     backgroundColor: '#000000',
@@ -66,10 +129,13 @@
     convertAfterRecording: true,
     frameRate: '30',
     quality: 'high'
-  };
+  });
+
+  // Preview aspect ratio for CSS (e.g. "16/9")
+  let previewAspectRatio = $derived(globalSettings.aspectRatio.replace(':', '/'));
 
   // Canvas dimensions based on aspect ratio
-  $: canvasDimensions = (() => {
+  const canvasDimensions = $derived.by(() => {
     const selectedRatio = aspectRatios.find(ratio => ratio.value === globalSettings.aspectRatio);
     if (selectedRatio) {
       return {
@@ -78,16 +144,17 @@
       };
     }
     return { width: 1920, height: 1080 };
-  })();
+  });
 
-  // Aspect ratio options
-  const aspectRatios = [
-    { value: '16:9', label: '16:9 (Widescreen)', width: 1920, height: 1080 },
-    { value: '4:3', label: '4:3 (Standard)', width: 1024, height: 768 },
-    { value: '1:1', label: '1:1 (Square)', width: 1080, height: 1080 },
-    { value: '21:9', label: '21:9 (Ultrawide)', width: 2560, height: 1080 },
-    { value: '9:16', label: '9:16 (Vertical)', width: 1080, height: 1920 }
-  ];
+  // プレビューズーム（0.25〜2、1=100%）
+  const PREVIEW_ZOOM_MIN = 0.25;
+  const PREVIEW_ZOOM_MAX = 2;
+  const PREVIEW_ZOOM_STEP = 0.25;
+  let previewZoom = $state(1);
+
+  function setPreviewZoom(delta: number) {
+    previewZoom = Math.max(PREVIEW_ZOOM_MIN, Math.min(PREVIEW_ZOOM_MAX, previewZoom + delta));
+  }
 
   // Available visualization modes grouped by category
   const visualizationModes = [
@@ -254,14 +321,13 @@
     if (fileData) {
       URL.revokeObjectURL(fileData.preview);
     }
-    loadedFiles = loadedFiles.filter(f => f.id !== fileId);
-    
-    // If we removed the selected file, select another one or clear selection
+    const after = loadedFiles.filter(f => f.id !== fileId);
+    loadedFiles = after;
+
     if (selectedFile && fileData && selectedFile === fileData.file) {
-      if (loadedFiles.length > 0) {
-        const newSelected = loadedFiles[0];
-        selectedFile = newSelected.file;
-        filePreview = newSelected.preview;
+      if (after.length > 0) {
+        selectedFile = after[0].file;
+        filePreview = after[0].preview;
       } else {
         selectedFile = null;
         filePreview = null;
@@ -327,7 +393,7 @@
     const newLayer = {
       id: `layer-${nextLayerId++}`,
       type: type as any,
-      name: `${type.charAt(0).toUpperCase() + type.slice(1)} Layer`,
+      name: type.charAt(0).toUpperCase() + type.slice(1),
       visible: true,
       opacity: 1.0,
       x: defaultPosition.x,
@@ -406,7 +472,7 @@
     const newLayer = {
       id: `layer-${nextLayerId++}`,
       type: modeId as any,
-      name: `${modeId.charAt(0).toUpperCase() + modeId.slice(1)} Layer`,
+      name: modeId.charAt(0).toUpperCase() + modeId.slice(1),
       visible: true,
       opacity: 1.0,
       x: 0,
@@ -430,6 +496,24 @@
     }
   }
 
+  /** レイヤーをリスト内で上へ（描画では手前に） */
+  function moveLayerUp(layerId: string) {
+    const i = layers.findIndex((l) => l.id === layerId);
+    if (i <= 0) return;
+    const next = [...layers];
+    [next[i - 1], next[i]] = [next[i], next[i - 1]];
+    layers = next;
+  }
+
+  /** レイヤーをリスト内で下へ（描画では奥に） */
+  function moveLayerDown(layerId: string) {
+    const i = layers.findIndex((l) => l.id === layerId);
+    if (i < 0 || i >= layers.length - 1) return;
+    const next = [...layers];
+    [next[i], next[i + 1]] = [next[i + 1], next[i]];
+    layers = next;
+  }
+
   function updateLayerProperty(layerId: string, property: string, value: any) {
     layers = layers.map(layer => 
       layer.id === layerId ? { ...layer, [property]: value } : layer
@@ -445,6 +529,14 @@
     console.log('getSelectedLayer - selectedLayer:', selectedLayer);
     console.log('getSelectedLayer - found layer:', layer);
     return layer;
+  }
+
+  /** Hex color to rgba string (alpha 0–1). */
+  function hexToRgba(hex: string, alpha: number): string {
+    const n = parseInt(hex.replace(/^#/, ''), 16);
+    if (Number.isNaN(n)) return `rgba(255,255,255,${alpha})`;
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha))})`;
   }
 
   function getDefaultSettings(type: string) {
@@ -464,7 +556,9 @@
         color: '#ffffff',
         backgroundColor: '#000000',
         style: 'line',
-        amplitude: 100
+        amplitude: 100,
+        /** 波形の透明度 0=不透明(見える) 1=透明(見えない)。デフォルト0で見える */
+        waveformTransparency: 0
       },
       spectrogram: {
         windowSize: 2048,
@@ -533,7 +627,7 @@
   let audioContext: AudioContext | null = null;
   let analyser: AnalyserNode | null = null;
   let audioSource: AudioBufferSourceNode | null = null;
-  let isPreviewPlaying = false;
+  let isPreviewPlaying = $state(false);
   let previewAnimationId: number | null = null;
 
   // Preview control functions
@@ -607,17 +701,14 @@
         const width = (layer.width / 100) * previewCanvas.width;
         const height = (layer.height / 100) * previewCanvas.height;
         
-        // Save context state
+        // Save context state, clip to layer rect, then apply layer opacity
         if (previewCtx) {
           previewCtx.save();
-          
-          // Set opacity
-          previewCtx.globalAlpha = layer.opacity;
-          
-          // Render layer based on type with real audio data
+          previewCtx.beginPath();
+          previewCtx.rect(x, y, width, height);
+          previewCtx.clip();
+          previewCtx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
           renderLayerWithAudioData(layer, x, y, width, height, dataArray);
-          
-          // Restore context state
           previewCtx.restore();
         }
       });
@@ -783,13 +874,18 @@
     const color = layer.settings.color || '#ffffff';
     const amplitude = layer.settings.amplitude || 100;
     const style = layer.settings.style || 'line';
+    const transparency = typeof layer.settings.waveformTransparency === 'number'
+      ? layer.settings.waveformTransparency
+      : (typeof layer.settings.strokeOpacity === 'number' ? 1 - layer.settings.strokeOpacity : 0);
+    const strokeOpacity = Math.max(0, Math.min(1, 1 - transparency));
+    const strokeColor = hexToRgba(color, strokeOpacity);
     
     // Get time domain data for waveform
     const timeData = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteTimeDomainData(timeData);
     
-    previewCtx.strokeStyle = color;
-    previewCtx.lineWidth = 2;
+    previewCtx.strokeStyle = strokeColor;
+    previewCtx.lineWidth = 3;
     previewCtx.beginPath();
     
     const centerY = y + height / 2;
@@ -811,7 +907,7 @@
     if (style === 'fill') {
       previewCtx.lineTo(x + width, y + height);
       previewCtx.lineTo(x, y + height);
-      previewCtx.fillStyle = color;
+      previewCtx.fillStyle = strokeColor;
       previewCtx.fill();
     } else {
       previewCtx.stroke();
@@ -1138,12 +1234,17 @@
     const color = layer.settings.color || '#ffffff';
     const amplitude = layer.settings.amplitude || 100;
     const style = layer.settings.style || 'line';
+    const transparency = typeof layer.settings.waveformTransparency === 'number'
+      ? layer.settings.waveformTransparency
+      : (typeof layer.settings.strokeOpacity === 'number' ? 1 - layer.settings.strokeOpacity : 0);
+    const strokeOpacity = Math.max(0, Math.min(1, 1 - transparency));
+    const strokeColor = hexToRgba(color, strokeOpacity);
     
     // For recording, we'll use frequency data as a proxy for waveform
     const samplesPerPoint = Math.floor(dataArray.length / width);
     
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     
     const centerY = y + height / 2;
@@ -1170,13 +1271,13 @@
     if (style === 'fill') {
       ctx.lineTo(x + width, y + height);
       ctx.lineTo(x, y + height);
-      ctx.fillStyle = color;
+      ctx.fillStyle = strokeColor;
       ctx.fill();
     } else {
       ctx.stroke();
     }
   }
-
+  
   function renderSpectrogramForRecording(layer: any, x: number, y: number, width: number, height: number, dataArray: Uint8Array, ctx: CanvasRenderingContext2D) {
     if (!ctx) return;
     
@@ -1359,19 +1460,16 @@
   }
 
   function handleLayerMouseDown(event: MouseEvent, layerId: string) {
-    if (event.target instanceof HTMLElement && event.target.closest('.layer-controls')) {
-      return; // Don't start drag if clicking on controls
+    if (event.target instanceof HTMLElement && (event.target.closest('.no-layer-drag') || event.target.closest('.layer-resize-handle'))) {
+      return;
     }
-    
     isDragging = true;
     selectedLayer = layerId;
-    
     const layer = layers.find(l => l.id === layerId);
     if (layer && previewCanvas) {
       const rect = previewCanvas.getBoundingClientRect();
       const scaleX = previewCanvas.width / rect.width;
       const scaleY = previewCanvas.height / rect.height;
-      
       dragOffset = {
         x: (event.clientX - rect.left) * scaleX - (layer.x / 100) * previewCanvas.width,
         y: (event.clientY - rect.top) * scaleY - (layer.y / 100) * previewCanvas.height
@@ -1379,16 +1477,68 @@
     }
   }
 
+  function clientToPercent(clientX: number, clientY: number, rect: DOMRect) {
+    return {
+      px: Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100)),
+      py: Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100))
+    };
+  }
+
+  function handleResizeStart(e: MouseEvent, layerId: string, handle: ResizeHandle) {
+    e.preventDefault();
+    e.stopPropagation();
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer) return;
+    resizingLayer = {
+      layerId,
+      handle,
+      startX: e.clientX,
+      startY: e.clientY,
+      start: { x: layer.x, y: layer.y, width: layer.width, height: layer.height }
+    };
+  }
+
   function handlePreviewMouseMove(event: MouseEvent) {
+    const container = (event.currentTarget instanceof Window ? previewCanvasContainer : event.currentTarget) as HTMLElement | null;
+    if (!container || !container.getBoundingClientRect) return;
+    const rect = container.getBoundingClientRect();
+
+    if (resizingLayer) {
+      const { layerId, handle, start } = resizingLayer;
+      const { px: newPx, py: newPy } = clientToPercent(event.clientX, event.clientY, rect);
+      const MIN = 5;
+      let x = start.x;
+      let y = start.y;
+      let width = start.width;
+      let height = start.height;
+      const x2 = start.x + start.width;
+      const y2 = start.y + start.height;
+
+      if (handle.includes('e')) width = Math.max(MIN, Math.min(100 - x, newPx - x));
+      if (handle.includes('w')) {
+        const nw = Math.min(x2 - MIN, newPx);
+        width = x2 - nw;
+        x = nw;
+      }
+      if (handle.includes('s')) height = Math.max(MIN, Math.min(100 - y, newPy - y));
+      if (handle.includes('n')) {
+        const ny = Math.min(y2 - MIN, newPy);
+        height = y2 - ny;
+        y = ny;
+      }
+
+      updateLayerProperty(layerId, 'x', x);
+      updateLayerProperty(layerId, 'y', y);
+      updateLayerProperty(layerId, 'width', width);
+      updateLayerProperty(layerId, 'height', height);
+      return;
+    }
+
     if (!isDragging || !selectedLayer || !previewCanvas) return;
-    
-    const rect = previewCanvas.getBoundingClientRect();
     const scaleX = previewCanvas.width / rect.width;
     const scaleY = previewCanvas.height / rect.height;
-    
     const newX = ((event.clientX - rect.left) * scaleX - dragOffset.x) / previewCanvas.width * 100;
     const newY = ((event.clientY - rect.top) * scaleY - dragOffset.y) / previewCanvas.height * 100;
-    
     const layer = layers.find(l => l.id === selectedLayer);
     if (layer) {
       updateLayerProperty(selectedLayer, 'x', Math.max(0, Math.min(100 - layer.width, newX)));
@@ -1398,7 +1548,22 @@
 
   function handlePreviewMouseUp() {
     isDragging = false;
+    resizingLayer = null;
   }
+
+  // リサイズ／ドラッグ中は window で mousemove・mouseup を監視（カーソルがプレビュー外に出ても解除されない）
+  $effect(() => {
+    if (resizingLayer !== null || isDragging) {
+      const onMove = (e: MouseEvent) => handlePreviewMouseMove(e);
+      const onUp = () => handlePreviewMouseUp();
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      return () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+    }
+  });
 
   // Export functionality
   let mediaRecorder: MediaRecorder | null = null;
@@ -1513,14 +1678,12 @@
           const width = (layer.width / 100) * recordingCanvas.width;
           const height = (layer.height / 100) * recordingCanvas.height;
 
-          // Save context state
           recordingCtx.save();
-          recordingCtx.globalAlpha = layer.opacity;
-
-          // Render layer with audio data
+          recordingCtx.beginPath();
+          recordingCtx.rect(x, y, width, height);
+          recordingCtx.clip();
+          recordingCtx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
           renderLayerWithAudioDataForRecording(layer, x, y, width, height, dataArray, recordingCtx);
-
-          // Restore context state
           recordingCtx.restore();
         });
 
@@ -1628,10 +1791,12 @@
     }
   }
 
-  // Watch for aspect ratio changes
-  $: if (canvasDimensions) {
-    updateCanvasSize();
-  }
+  // Watch for aspect ratio / dimensions changes
+  $effect(() => {
+    if (canvasDimensions) {
+      updateCanvasSize();
+    }
+  });
 
   // Cleanup
   onMount(() => {
@@ -1640,15 +1805,20 @@
       previewCtx = previewCanvas.getContext('2d');
       updateCanvasSize();
     }
-    
+
+    const handleResizeMove = (e: MouseEvent) => onResizeMove(e);
+    const handleResizeEnd = () => onResizeEnd();
+    window.addEventListener('mousemove', handleResizeMove);
+    window.addEventListener('mouseup', handleResizeEnd);
+
     return () => {
+      window.removeEventListener('mousemove', handleResizeMove);
+      window.removeEventListener('mouseup', handleResizeEnd);
       // Stop preview if playing
       stopPreview();
-      
       if (filePreview) {
         URL.revokeObjectURL(filePreview);
       }
-      // Clean up all loaded file previews
       loadedFiles.forEach(fileData => {
         URL.revokeObjectURL(fileData.preview);
       });
@@ -1661,22 +1831,12 @@
 </svelte:head>
 
 <div class="multi-view-composer">
-  <!-- Header -->
-  <header class="composer-header">
-    <h1>Multi-View Composer</h1>
-    <button class="back-button" on:click={() => window.history.back()}>
-      ← Back
-    </button>
-  </header>
-
-  <!-- Main Content -->
   <div class="composer-main">
-    <!-- Left Panel: Visualization Modes -->
-    <div class="modes-panel">
-      <h3>Visualization Modes</h3>
+    <div class="modes-panel" style="width: {panelWidths.modes}px; min-width: {PANEL_MIN}px; max-width: {PANEL_MAX}px;">
+      <h3>Modes</h3>
       <div class="modes-container">
         {#each visualizationModes as category}
-          <div class="category-section">
+          <div class="category-section category-{category.category.toLowerCase()}">
             <div class="category-header">
               <span class="category-icon">{category.icon}</span>
               <h4 class="category-title">{category.category}</h4>
@@ -1701,12 +1861,10 @@
         {/each}
       </div>
     </div>
-
-
-    <!-- Center Panel: Layer Management -->
-    <div class="layers-panel">
+    <div class="resizer" class:resizing={resizing !== null} role="separator" aria-label="リサイズ" on:mousedown={(e) => startResize('modes', e)}></div>
+    <div class="layers-panel" style="width: {panelWidths.layers}px; min-width: {PANEL_MIN}px; max-width: {PANEL_MAX}px;">
       <div class="layers-header">
-        <h3>Layer Management</h3>
+        <h3>Layers</h3>
         <div class="layers-count">{layers.length} layer{layers.length !== 1 ? 's' : ''}</div>
       </div>
       
@@ -1729,77 +1887,61 @@
             <div class="project-layer-description">Global composition settings</div>
           </div>
         </div>
+
+        <div class="layers-list-divider" role="presentation"></div>
         
-        {#each layers as layer (layer.id)}
+        {#each layers as layer, index (layer.id)}
           <div 
             class="layer-item" 
+            class:layer-audio={['spectrum', 'waveform', 'spectrogram', '3d'].includes(layer.type)}
+            class:layer-midi={['pianoroll', 'score'].includes(layer.type)}
             class:selected={selectedLayer === layer.id}
             role="button"
             tabindex="0"
             on:click={() => selectLayer(layer.id)}
             on:keydown={(e) => e.key === 'Enter' && selectLayer(layer.id)}
           >
-            <div class="layer-info">
-              <div class="layer-details">
-                <div class="layer-name">{layer.name}</div>
-                <div class="layer-type">{layer.type}</div>
-              </div>
+            <div class="layer-order-btns no-layer-drag" on:click|stopPropagation={() => {}}>
+              <button type="button" class="layer-order-btn" title="上へ" disabled={index === 0} on:click|stopPropagation={() => moveLayerUp(layer.id)}>↑</button>
+              <button type="button" class="layer-order-btn" title="下へ" disabled={index === layers.length - 1} on:click|stopPropagation={() => moveLayerDown(layer.id)}>↓</button>
             </div>
-            <div class="layer-controls">
-              <label class="layer-control">
-                <input 
-                  type="checkbox" 
-                  bind:checked={layer.visible}
-                  on:change={() => updateLayerProperty(layer.id, 'visible', layer.visible)}
-                />
-                <span>Visible</span>
+            <div class="layer-item-body">
+              <div class="layer-item-row layer-item-head">
+                <div class="layer-details">
+                  <span class="layer-name">{layer.name}</span>
+                </div>
+                <button type="button" class="layer-vis-btn no-layer-drag" class:dimmed={!layer.visible} title={layer.visible ? 'Hide' : 'Show'} on:click|stopPropagation={() => updateLayerProperty(layer.id, 'visible', !layer.visible)} aria-pressed={layer.visible}>
+                  <span class="layer-vis-icon">{layer.visible ? '●' : '○'}</span>
+                </button>
+                <button type="button" class="layer-remove-btn no-layer-drag" title="削除" on:click|stopPropagation={() => removeLayer(layer.id)}>×</button>
+              </div>
+              <div class="layer-item-row layer-item-meta no-layer-drag" on:click|stopPropagation={() => {}}>
+              <label class="layer-opacity-col">
+                <span class="layer-meta-label">Opacity</span>
+                <div class="layer-opacity-control">
+                  <input type="range" min="0" max="1" step="0.1" bind:value={layer.opacity} on:input={() => updateLayerProperty(layer.id, 'opacity', layer.opacity)} />
+                  <span>{Math.round(layer.opacity * 100)}%</span>
+                </div>
               </label>
-              <label class="layer-control">
-                <span>Opacity:</span>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1" 
-                  step="0.1" 
-                  bind:value={layer.opacity}
-                  on:input={() => updateLayerProperty(layer.id, 'opacity', layer.opacity)}
-                />
-                <span>{Math.round(layer.opacity * 100)}%</span>
-              </label>
-              
-              <!-- File Assignment -->
-              <div class="layer-file-assignment">
-                <label class="layer-control">
-                  <span>File:</span>
+              <div class="layer-file-col">
+                <span class="layer-meta-label">File</span>
+                <div class="layer-file-control">
                   <select 
                     bind:value={layer.assignedFileId}
                     on:change={() => assignFileToLayer(layer.id, layer.assignedFileId || '')}
+                    title="割り当てファイル"
                   >
-                    <option value="">No file assigned</option>
+                    <option value="">—</option>
                     {#each loadedFiles as file}
                       <option value={file.id}>{file.name}</option>
                     {/each}
                   </select>
-                </label>
-                {#if layer.assignedFileId}
-                  <button 
-                    class="remove-file-btn"
-                    on:click={() => removeFileFromLayer(layer.id)}
-                    title="Remove file assignment"
-                  >
-                    ×
-                  </button>
-                {/if}
+                  {#if layer.assignedFileId}
+                    <button type="button" class="layer-unassign-btn" title="割り当て解除" on:click={() => removeFileFromLayer(layer.id)}>×</button>
+                  {/if}
+                </div>
               </div>
-              
-              <!-- Delete button -->
-              <button 
-                class="remove-layer-btn"
-                on:click|stopPropagation={() => removeLayer(layer.id)}
-                title="Remove layer"
-              >
-                ×
-              </button>
+            </div>
             </div>
           </div>
         {/each}
@@ -1811,12 +1953,16 @@
         {/if}
       </div>
     </div>
-
-    <!-- Center-Right Panel: Preview Area -->
+    <div class="resizer" class:resizing={resizing !== null} role="separator" aria-label="リサイズ" on:mousedown={(e) => startResize('layers', e)}></div>
     <div class="preview-panel">
       <div class="preview-header">
         <h3>Preview</h3>
         <div class="preview-actions">
+          <div class="preview-zoom-controls" title="ズーム">
+            <button type="button" class="preview-zoom-btn" disabled={previewZoom <= PREVIEW_ZOOM_MIN} on:click={() => setPreviewZoom(-PREVIEW_ZOOM_STEP)} aria-label="ズームアウト">−</button>
+            <span class="preview-zoom-value">{Math.round(previewZoom * 100)}%</span>
+            <button type="button" class="preview-zoom-btn" disabled={previewZoom >= PREVIEW_ZOOM_MAX} on:click={() => setPreviewZoom(PREVIEW_ZOOM_STEP)} aria-label="ズームイン">+</button>
+          </div>
           <!-- Preview Button -->
           <button 
             class="preview-btn" 
@@ -1839,26 +1985,28 @@
       </div>
       
       <div class="preview-content">
-        <!-- Preview Canvas -->
-        <div 
-          class="preview-canvas-container"
-          role="application"
-          aria-label="Preview canvas for layer composition"
-          on:dragover={handleDragOver}
-          on:drop={handleDrop}
-          on:mousemove={handlePreviewMouseMove}
-          on:mouseup={handlePreviewMouseUp}
-          on:mouseleave={handlePreviewMouseUp}
-        >
-          <div class="preview-canvas">
-            <!-- Main visualization canvas -->
-            <canvas 
-              bind:this={previewCanvas}
-              class="visualization-canvas"
-              width={canvasDimensions.width}
-              height={canvasDimensions.height}
-              style="max-width: 100%; max-height: 100%; object-fit: contain;"
-            ></canvas>
+        <div class="preview-zoom-wrapper">
+          <div class="preview-zoom-inner" style="transform: scale({previewZoom});">
+            <div class="preview-aspect-wrapper" style="aspect-ratio: {previewAspectRatio};">
+              <div 
+                bind:this={previewCanvasContainer}
+                class="preview-canvas-container preview-output-frame"
+                class:resizing-layer={resizingLayer !== null}
+                role="application"
+                aria-label="Preview canvas for layer composition"
+                on:dragover={handleDragOver}
+                on:drop={handleDrop}
+                on:mousemove={handlePreviewMouseMove}
+                on:mouseup={handlePreviewMouseUp}
+              >
+            <div class="preview-canvas">
+              <canvas 
+                bind:this={previewCanvas}
+                class="visualization-canvas"
+                width={canvasDimensions.width}
+                height={canvasDimensions.height}
+                style="max-width: 100%; max-height: 100%; object-fit: contain;"
+              ></canvas>
             
             {#if layers.length === 0}
               <div class="empty-preview">
@@ -1893,10 +2041,27 @@
                       <span>{layer.type}</span>
                     </div>
                   </div>
+                  {#if selectedLayer === layer.id}
+                    <div class="layer-resize-handle n" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'n')}></div>
+                    <div class="layer-resize-handle s" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 's')}></div>
+                    <div class="layer-resize-handle e" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'e')}></div>
+                    <div class="layer-resize-handle w" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'w')}></div>
+                    <div class="layer-resize-handle ne" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'ne')}></div>
+                    <div class="layer-resize-handle nw" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'nw')}></div>
+                    <div class="layer-resize-handle se" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'se')}></div>
+                    <div class="layer-resize-handle sw" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'sw')}></div>
+                  {/if}
                 </div>
               {/each}
             {/if}
           </div>
+            <div class="preview-output-label" title="Output: {globalSettings.aspectRatio} / {canvasDimensions.width}×{canvasDimensions.height}">
+              <span class="preview-output-aspect">{globalSettings.aspectRatio}</span>
+              <span class="preview-output-resolution">{canvasDimensions.width}×{canvasDimensions.height}</span>
+            </div>
+        </div>
+          </div>
+        </div>
         </div>
 
         <!-- Progress Bar -->
@@ -1909,49 +2074,64 @@
           </div>
         {/if}
 
+        <!-- パラメータ領域の縦幅リサイザー -->
+        <div
+          class="resizer resizer-settings"
+          class:resizing={resizing !== null}
+          role="separator"
+          aria-label="パラメータの高さを変更"
+          on:mousedown={(e) => startResize('settings', e)}
+        ></div>
+
         <!-- Settings Panel -->
-        <div class="settings-panel">
-        <!-- Debug info -->
-        <div style="color: #8b6f47; font-size: 0.7rem; margin-bottom: 10px;">
-          Debug: selectedLayer={selectedLayer}, isProjectLayerSelected={isProjectLayerSelected}
-        </div>
+        <div class="settings-panel" style="height: {settingsPanelHeight}px;">
         {#if isProjectLayerSelected || (!selectedLayer && !isProjectLayerSelected)}
           <!-- Global Settings -->
           <div class="settings-header">
-              <h4>Global Settings</h4>
+              <h4>Global</h4>
           </div>
-          <div class="settings-content">
+          <div class="settings-content settings-content-inline">
             <div class="setting-group">
               <label class="setting-label">
-                <span>Aspect Ratio:</span>
-                <select bind:value={globalSettings.aspectRatio}>
+                <span>Aspect</span>
+                <select
+                  bind:value={globalSettings.aspectRatio}
+                  on:change={() => {
+                    const ratio = aspectRatios.find(r => r.value === globalSettings.aspectRatio);
+                    if (ratio) {
+                      updateGlobalSettings('resolution', `${ratio.width}x${ratio.height}`);
+                    }
+                  }}
+                >
                   <option value="16:9">16:9</option>
                   <option value="4:3">4:3</option>
                   <option value="1:1">1:1</option>
                   <option value="21:9">21:9</option>
+                  <option value="9:16">9:16</option>
                 </select>
               </label>
             </div>
             <div class="setting-group">
               <label class="setting-label">
-                <span>Resolution:</span>
+                <span>Resolution</span>
                 <select bind:value={globalSettings.resolution}>
-                  <option value="1920x1080">1920x1080</option>
-                  <option value="1280x720">1280x720</option>
-                  <option value="2560x1440">2560x1440</option>
-                  <option value="3840x2160">3840x2160</option>
+                  {#each aspectRatios as r}
+                    {#if r.value === globalSettings.aspectRatio}
+                      <option value={r.width + 'x' + r.height}>{r.width}×{r.height}</option>
+                    {/if}
+                  {/each}
                 </select>
               </label>
             </div>
             <div class="setting-group">
               <label class="setting-label">
-                <span>Background Color:</span>
+                <span>BG</span>
                 <input type="color" bind:value={globalSettings.backgroundColor} />
               </label>
             </div>
             <div class="setting-group">
               <label class="setting-label">
-                <span>Frame Rate:</span>
+                <span>FPS</span>
                 <select bind:value={globalSettings.frameRate}>
                   <option value="24">24 fps</option>
                   <option value="30">30 fps</option>
@@ -1961,7 +2141,7 @@
             </div>
             <div class="setting-group">
               <label class="setting-label">
-                <span>Quality:</span>
+                <span>Quality</span>
                 <select bind:value={globalSettings.quality}>
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
@@ -1975,10 +2155,8 @@
           {@const layer = getSelectedLayer()}
           {#if layer}
             <div class="settings-header">
-              <h4>Layer Settings: {layer.name}</h4>
-              <p style="color: #8b6f47; font-size: 0.8rem;">Type: {layer.type}</p>
-              <p style="color: #8b6f47; font-size: 0.7rem;">ID: {layer.id}</p>
-              <p style="color: #8b6f47; font-size: 0.7rem;">Full Layer: {JSON.stringify(layer, null, 2)}</p>
+              <h4>{layer.name}</h4>
+              <span class="settings-type-badge">{layer.type}</span>
             </div>
             
             <div class="settings-content">
@@ -2130,6 +2308,13 @@
                     <span>{layer.settings.amplitude}%</span>
                   </label>
                 </div>
+                <div class="setting-group">
+                  <label class="setting-label">
+                    <span>波形の透明度:</span>
+                    <input type="range" value={typeof layer.settings.waveformTransparency === 'number' ? layer.settings.waveformTransparency : (typeof layer.settings.strokeOpacity === 'number' ? 1 - layer.settings.strokeOpacity : 0)} on:input={(e) => { layer.settings.waveformTransparency = parseFloat((e.target as HTMLInputElement).value); updateLayerProperty(layer.id, 'settings', layer.settings); }} min="0" max="1" step="0.1">
+                    <span>{Math.round((typeof layer.settings.waveformTransparency === 'number' ? layer.settings.waveformTransparency : (typeof layer.settings.strokeOpacity === 'number' ? 1 - layer.settings.strokeOpacity : 0)) * 100)}%</span>
+                  </label>
+                </div>
                 {:else if layer.type === 'spectrogram'}
                 <div class="setting-group">
                   <label class="setting-label">
@@ -2233,16 +2418,15 @@
             </div>
           {:else}
             <div class="settings-header">
-              <h4>No Layer Selected</h4>
+              <h4>Layer</h4>
             </div>
             <div class="settings-content">
-              <p style="color: #8b6f47;">Please select a layer to view its settings.</p>
+              <p class="settings-hint">Select a layer to edit.</p>
             </div>
           {/if}
         {:else}
-          <!-- Global Settings -->
           <div class="settings-header">
-            <h4>⚙️ Global Settings</h4>
+            <h4>Global</h4>
           </div>
           
           <div class="settings-content">
@@ -2319,10 +2503,10 @@
       </div>
     </div>
 
-    <!-- Right Panel: File Management -->
-    <div class="files-panel">
+    <div class="resizer resizer-vertical" class:resizing={resizing !== null} role="separator" aria-label="リサイズ" on:mousedown={(e) => startResize('files', e)}></div>
+    <div class="files-panel" style="width: {panelWidths.files}px; min-width: {PANEL_MIN}px; max-width: {PANEL_MAX}px;">
       <div class="files-header">
-        <h3>File Management</h3>
+        <h3>Files</h3>
         <div class="files-count">{loadedFiles.length} file{loadedFiles.length !== 1 ? 's' : ''}</div>
       </div>
       
@@ -2404,134 +2588,142 @@
   .multi-view-composer {
     display: flex;
     flex-direction: column;
-    height: 100vh;
-    width: 100vw;
-    position: fixed;
-    top: 0;
-    left: 0;
-    background: linear-gradient(135deg, #2a2419 0%, #3e3429 100%);
-    color: #f5e6d3;
-    font-family: 'DotGothic16', monospace;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
     overflow: hidden;
-  }
-
-  .composer-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 15px 20px;
-    background: linear-gradient(90deg, #8b6f47 0%, #d4a574 100%);
-    border-bottom: 2px solid #6b4423;
-    flex-shrink: 0;
-  }
-
-  .composer-header h1 {
-    margin: 0;
-    font-size: 1.8rem;
-    color: #2a2419;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-  }
-
-  .back-button {
-    background: #6b4423;
-    color: #f5e6d3;
-    border: 2px solid #8b6f47;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-family: 'DotGothic16', monospace;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-
-  .back-button:hover {
-    background: #8b6f47;
-    border-color: #d4a574;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
   }
 
   .composer-main {
     position: relative;
     display: flex;
     flex: 1;
-    height: calc(100vh - 80px);
+    min-height: 0;
+    min-width: 0;
     overflow: hidden;
+  }
+
+  .resizer {
+    width: 6px;
+    flex-shrink: 0;
+    background: var(--border-light);
+    cursor: col-resize;
+    transition: background 0.15s;
+  }
+  .resizer:hover,
+  .resizer.resizing {
+    background: var(--accent);
   }
 
   /* Left Panel: Modes */
   .modes-panel {
-    width: 280px;
-    background: #3e3429;
-    border-right: 2px solid #6b4423;
-    padding: 20px;
-    overflow-y: auto;
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    min-width: 0;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border-light);
+    padding: 10px;
+    overflow: auto;
   }
 
   .modes-panel h3 {
-    margin: 0 0 20px 0;
-    color: #d4a574;
-    font-size: 1.3rem;
-    border-bottom: 2px solid #6b4423;
-    padding-bottom: 10px;
+    margin: 0 0 8px 0;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 6px;
   }
 
   .modes-container {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 10px;
   }
 
   .category-section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 6px;
   }
 
   .category-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: #2a2419;
-    border: 1px solid #6b4423;
-    border-radius: 6px;
-    margin-bottom: 8px;
+    gap: 6px;
+    padding: 4px 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    margin-bottom: 4px;
   }
 
   .category-icon {
-    font-size: 1.2rem;
+    font-size: 1rem;
   }
 
   .category-title {
     margin: 0;
-    color: #d4a574;
-    font-size: 1rem;
-    font-weight: bold;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  /* Audio: 青系 */
+  .category-section.category-audio .category-header {
+    border-left: 3px solid #3b82f6;
+    background: rgba(59, 130, 246, 0.08);
+  }
+
+  .category-section.category-audio .mode-card {
+    border-left: 3px solid #60a5fa;
+    background: rgba(59, 130, 246, 0.05);
+  }
+
+  .category-section.category-audio .mode-card:hover {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: #3b82f6;
+  }
+
+  /* MIDI: 黄系 */
+  .category-section.category-midi .category-header {
+    border-left: 3px solid #ca8a04;
+    background: rgba(202, 138, 4, 0.1);
+  }
+
+  .category-section.category-midi .mode-card {
+    border-left: 3px solid #eab308;
+    background: rgba(202, 138, 4, 0.06);
+  }
+
+  .category-section.category-midi .mode-card:hover {
+    background: rgba(202, 138, 4, 0.14);
+    border-color: #ca8a04;
   }
 
   .modes-grid {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
   }
 
   .mode-card {
-    background: #2a2419;
-    border: 2px solid #6b4423;
-    border-radius: 8px;
-    padding: 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    padding: 6px 8px;
     cursor: grab;
-    transition: all 0.3s ease;
+    transition: border-color 0.15s, background 0.15s;
     user-select: none;
   }
 
   .mode-card:hover {
-    background: #3e3429;
-    border-color: #d4a574;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    background: var(--bg-panel);
+    border-color: var(--accent);
   }
 
   .mode-card:active {
@@ -2539,368 +2731,527 @@
   }
 
   .mode-icon {
-    font-size: 1.5rem;
-    margin-bottom: 6px;
+    font-size: 1.1rem;
+    margin-bottom: 2px;
   }
 
   .mode-name {
-    font-weight: bold;
-    color: #d4a574;
-    margin-bottom: 3px;
-    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 1px;
+    font-size: 0.8rem;
   }
 
   .mode-description {
-    font-size: 0.8rem;
-    color: #c4a57b;
+    font-size: 0.7rem;
+    color: var(--text-muted);
     line-height: 1.2;
   }
 
 
   /* Center Panel: Layers */
   .layers-panel {
-    width: 320px;
-    background: #2a2419;
-    border-right: 2px solid #6b4423;
-    padding: 20px;
-    overflow-y: auto;
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    min-width: 0;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border-light);
+    padding: 10px;
+    overflow: auto;
   }
 
   .layers-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #6b4423;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .layers-header h3 {
     margin: 0;
-    color: #d4a574;
-    font-size: 1.3rem;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
   }
 
   .layers-count {
-    background: #6b4423;
-    color: #f5e6d3;
-    padding: 4px 8px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 2px 6px;
     border-radius: 4px;
-    font-size: 0.9rem;
+    font-size: 0.75rem;
   }
-
 
   .layers-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 6px;
   }
 
   .layer-item {
-    background: #3e3429;
-    border: 2px solid #6b4423;
-    border-radius: 8px;
-    padding: 15px;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    padding: 0;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: border-color 0.15s, background 0.15s;
   }
 
   .layer-item:hover {
-    border-color: #d4a574;
+    border-color: var(--accent);
   }
 
   .layer-item.selected {
-    border-color: #628878;
-    background: #628878;
-    box-shadow: 0 0 10px rgba(98, 136, 120, 0.3);
+    border-color: var(--accent);
+    background: var(--accent-bg);
+  }
+
+  /* レイヤー: Audio 青系 */
+  .layer-item.layer-audio {
+    border-left: 3px solid #60a5fa;
+    background: rgba(59, 130, 246, 0.05);
+  }
+
+  .layer-item.layer-audio:hover {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+  }
+
+  .layer-item.layer-audio.selected {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.15);
+  }
+
+  /* レイヤー: MIDI 黄系 */
+  .layer-item.layer-midi {
+    border-left: 3px solid #eab308;
+    background: rgba(202, 138, 4, 0.06);
+  }
+
+  .layer-item.layer-midi:hover {
+    background: rgba(202, 138, 4, 0.12);
+    border-color: #ca8a04;
+  }
+
+  .layer-item.layer-midi.selected {
+    border-color: #ca8a04;
+    background: rgba(202, 138, 4, 0.16);
   }
 
   .project-layer-item {
-    background: #3e3429;
-    border: 2px solid #6b4423;
-    border-radius: 8px;
-    padding: 15px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    padding: 8px 10px;
     cursor: pointer;
-    transition: all 0.3s ease;
-    margin-bottom: 12px;
+    transition: border-color 0.15s, background 0.15s;
+    margin-bottom: 6px;
   }
 
   .project-layer-item:hover {
-    border-color: #d4a574;
+    border-color: var(--accent);
   }
 
   .project-layer-item.selected {
-    border-color: #628878;
-    background: #628878;
-    box-shadow: 0 0 10px rgba(98, 136, 120, 0.3);
+    border-color: var(--accent);
+    background: var(--accent-bg);
+  }
+
+  .layers-list-divider {
+    height: 0;
+    border-top: 1px solid var(--border-light);
+    margin: 8px 0;
   }
 
   .project-layer-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
   }
 
   .project-layer-name {
-    font-weight: bold;
-    color: #d4a574;
-    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.8rem;
   }
 
   .project-layer-description {
-    font-size: 0.8rem;
-    color: #8b6f47;
+    font-size: 0.7rem;
+    color: var(--text-muted);
   }
 
-
-  .layer-info {
-    margin-bottom: 10px;
+  .layer-item-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    min-width: 0;
   }
 
-
-  .layer-details {
-    flex: 1;
-  }
-
-  .layer-name {
-    font-weight: bold;
-    color: #d4a574;
+  .layer-item-head {
     margin-bottom: 4px;
   }
 
-  .layer-type {
-    font-size: 0.9rem;
-    color: #c4a57b;
-    text-transform: capitalize;
+  .layer-item-meta {
+    flex-direction: column;
+    align-items: stretch;
+    padding-left: 0;
+    gap: 8px;
+    font-size: 0.7rem;
   }
 
-  .layer-controls {
+  .layer-meta-label {
+    display: block;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+
+  .layer-order-btns {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-  }
-
-  .layer-control {
-    display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.9rem;
-    color: #f5e6d3;
+    justify-content: center;
+    gap: 0.1rem;
+    padding: 0.15rem 0.2rem;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
+    border-radius: 4px 0 0 4px;
+    flex-shrink: 0;
+    align-self: stretch;
+    margin-left: 0;
+    margin-right: 0;
   }
 
-  .layer-control input[type="checkbox"] {
-    accent-color: #d4a574;
-  }
-
-  .layer-control input[type="range"] {
+  .layer-item-body {
     flex: 1;
-    accent-color: #d4a574;
-  }
-
-  /* File Assignment Styles */
-  .layer-file-assignment {
+    min-width: 0;
+    padding: 8px 10px 8px 8px;
     display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 8px;
-    padding: 8px;
-    background: #2a2a2a;
-    border-radius: 6px;
-    border: 1px solid #444;
+    flex-direction: column;
+    gap: 4px;
   }
 
-  .layer-file-assignment select {
-    background: #3e3429;
-    color: #f5e6d3;
-    border: 1px solid #6b4423;
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-family: 'DotGothic16', monospace;
-    font-size: 0.8rem;
-  }
-
-  .layer-file-assignment select:focus {
-    outline: none;
-    border-color: #d4a574;
-  }
-
-  .remove-file-btn {
-    background: #8b6f47;
-    color: #f5e6d3;
-    border: 1px solid #6b4423;
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-family: 'DotGothic16', monospace;
-    font-size: 0.7rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-
-  .remove-file-btn:hover {
-    background: #6b4423;
-    border-color: #d4a574;
-  }
-
-  .remove-layer-btn {
-    background: #c75450;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    width: 28px;
-    height: 28px;
-    cursor: pointer;
-    font-size: 1rem;
+  .layer-order-btn {
+    padding: 0.1rem 0.2rem;
+    font-size: 0.55rem;
     line-height: 1;
-    margin-top: 8px;
-    align-self: flex-end;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    min-width: 1.2rem;
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
-  .remove-layer-btn:hover {
-    background: #b04542;
+  .layer-order-btn:hover:not(:disabled) {
+    color: var(--accent);
+    background: var(--accent-light);
   }
+
+  .layer-order-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+    pointer-events: none;
+  }
+
+  .layer-details {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .layer-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .layer-type-badge {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 2px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    text-transform: capitalize;
+  }
+
+  .layer-item.layer-audio .layer-type-badge {
+    background: rgba(59, 130, 246, 0.2);
+    color: #1d4ed8;
+  }
+
+  .layer-item.layer-midi .layer-type-badge {
+    background: rgba(202, 138, 4, 0.25);
+    color: #a16207;
+  }
+
+  .layer-vis-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--text-primary);
+  }
+
+  .layer-vis-btn:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .layer-vis-btn .layer-vis-icon {
+    font-size: 0.85rem;
+    opacity: 0.9;
+  }
+
+  .layer-vis-btn.dimmed .layer-vis-icon {
+    opacity: 0.4;
+  }
+
+  .layer-remove-btn {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    flex-shrink: 0;
+    border: 1px solid var(--border-light);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .layer-remove-btn:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  .layer-opacity-col {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .layer-opacity-col .layer-meta-label {
+    flex-shrink: 0;
+    margin-bottom: 0;
+  }
+
+  .layer-opacity-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .layer-opacity-control input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--accent);
+  }
+
+  .layer-opacity-control span {
+    flex-shrink: 0;
+    min-width: 2.2em;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+  }
+
+  .layer-file-col {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .layer-file-col .layer-meta-label {
+    flex-shrink: 0;
+    margin-bottom: 0;
+  }
+
+  .layer-file-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .layer-file-control select {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 0.68rem;
+  }
+
+  .layer-file-control select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .layer-unassign-btn {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    flex-shrink: 0;
+    border: 1px solid var(--border-light);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-radius: 2px;
+    font-size: 0.75rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .layer-unassign-btn:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
 
   .empty-layers {
     text-align: center;
-    color: #f5e6d3;
-    padding: 20px;
-    border: 2px dashed #628878;
-    border-radius: 8px;
-    background: #4a6b5a;
-    transition: all 0.3s ease;
-  }
-
-  .empty-layers:hover {
-    border-color: #7aa088;
-    background: #5a7b6a;
+    color: var(--text-muted);
+    padding: 12px;
+    border: 1px dashed var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    font-size: 0.8rem;
   }
 
   .empty-layers .hint {
-    font-size: 0.9rem;
-    margin-top: 8px;
+    font-size: 0.75rem;
+    margin-top: 4px;
   }
 
-  /* Center-Right Panel: Preview */
+  /* Preview Panel */
   .preview-panel {
     flex: 1;
-    background: #1a1611;
-    padding: 20px;
+    min-width: 0;
+    background: var(--bg-primary);
+    padding: 10px;
     display: flex;
     flex-direction: column;
-    min-width: 0;
     overflow: hidden;
   }
 
-  /* Right Panel: File Management */
+  /* Right Panel: Files */
   .files-panel {
-    width: 300px;
-    background: #2a2419;
-    border-left: 2px solid #6b4423;
-    padding: 20px;
-    overflow-y: auto;
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    min-width: 0;
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border-light);
+    padding: 10px;
+    overflow: auto;
   }
 
   .files-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #6b4423;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .files-header h3 {
     margin: 0;
-    color: #d4a574;
-    font-size: 1.3rem;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
   }
 
   .files-count {
-    background: #6b4423;
-    color: #f5e6d3;
-    padding: 4px 8px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 2px 6px;
     border-radius: 4px;
-    font-size: 0.9rem;
+    font-size: 0.75rem;
   }
 
   .files-content {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 10px;
   }
 
   .file-section {
-    margin-bottom: 15px;
+    margin-bottom: 10px;
   }
 
   .preview-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #6b4423;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .preview-actions {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 8px;
   }
 
   .preview-header h3 {
     margin: 0;
-    color: #d4a574;
-    font-size: 1.3rem;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
   }
 
-  .export-btn {
-    background: linear-gradient(45deg, #8b6f47, #d4a574);
-    color: #2a2419;
-    border: none;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-family: 'DotGothic16', monospace;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-
-  .export-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-  }
-
-  .export-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  /* Preview Button */
+  .export-btn,
   .preview-btn {
-    background: linear-gradient(45deg, #4a7c59, #628878);
-    color: #2a2419;
+    background: var(--accent);
+    color: #fff;
     border: none;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-family: 'DotGothic16', monospace;
-    font-weight: bold;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: background 0.15s;
   }
 
+  .export-btn:hover:not(:disabled),
   .preview-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    background: var(--accent-hover);
   }
 
+  .export-btn:disabled,
   .preview-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -2911,122 +3262,243 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
     overflow: hidden;
   }
 
-  /* Settings Panel */
+  .preview-zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .preview-zoom-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--border-light);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .preview-zoom-btn:hover:not(:disabled) {
+    background: var(--bg-secondary);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .preview-zoom-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .preview-zoom-value {
+    min-width: 2.8em;
+    text-align: center;
+  }
+
+  .preview-zoom-wrapper {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+    background: var(--bg-tertiary);
+  }
+
+  .preview-zoom-inner {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center center;
+  }
+
+  .preview-aspect-wrapper {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* パラメータ領域の縦リサイザー */
+  .resizer-settings {
+    width: 100%;
+    height: 6px;
+    flex-shrink: 0;
+    cursor: ns-resize;
+    background: var(--border-light);
+  }
+  .resizer-settings:hover,
+  .resizer-settings.resizing {
+    background: var(--accent);
+  }
+
+  /* Settings Panel - コンパクト */
   .settings-panel {
-    background: #2a2419;
-    border-top: 2px solid #6b4423;
-    padding: 20px;
-    max-height: 250px;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-light);
+    padding: 6px 8px;
+    min-height: 120px;
     overflow-y: auto;
     flex-shrink: 0;
-    margin-top: 20px;
-  }
-
-  /* Settings Layout */
-  .settings-layout {
-    display: flex;
-    gap: 20px;
-  }
-
-  .required-settings {
-    flex: 1;
-    min-width: 200px;
-  }
-
-  .mode-specific-settings {
-    flex: 1;
-    min-width: 200px;
-  }
-
-  .required-settings h5,
-  .mode-specific-settings h5 {
-    margin: 0 0 10px 0;
-    color: #d4a574;
-    font-size: 0.9rem;
-    border-bottom: 1px solid #6b4423;
-    padding-bottom: 5px;
+    font-size: 0.75rem;
   }
 
   .settings-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 15px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #6b4423;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-light);
+    gap: 6px;
   }
 
   .settings-header h4 {
     margin: 0;
-    color: #d4a574;
-    font-size: 1.1rem;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-weight: 600;
   }
 
+  .settings-type-badge {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .settings-hint {
+    margin: 0;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
 
   .settings-content {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 4px;
+  }
+
+  .settings-content-inline {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px 12px;
   }
 
   .setting-group {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 2px;
+  }
+
+  .setting-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-primary);
+    font-size: 0.7rem;
+  }
+
+  .setting-label span {
+    flex-shrink: 0;
+    min-width: 4em;
+    color: var(--text-muted);
+  }
+
+  .setting-label input,
+  .setting-label select {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 3px;
+    padding: 2px 5px;
+    font-size: 0.7rem;
+    min-width: 0;
+  }
+
+  .setting-label input[type="color"] {
+    width: 22px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+
+  .setting-label input:focus,
+  .setting-label select:focus {
+    outline: none;
+    border-color: var(--accent);
   }
 
   .setting-group h5 {
-    margin: 0;
-    color: #d4a574;
-    font-size: 1rem;
-    border-bottom: 1px solid #6b4423;
-    padding-bottom: 5px;
+    margin: 0 0 2px 0;
+    color: var(--text-primary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 2px;
   }
 
   .setting-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
   }
 
   .setting-row label {
-    min-width: 120px;
-    color: #f5e6d3;
-    font-size: 0.9rem;
+    min-width: 64px;
+    color: var(--text-primary);
+    font-size: 0.7rem;
   }
 
   .setting-row input[type="text"],
   .setting-row input[type="number"],
   .setting-row select {
-    background: #3e3429;
-    color: #f5e6d3;
-    border: 1px solid #6b4423;
-    border-radius: 4px;
-    padding: 6px 8px;
-    font-family: 'DotGothic16', monospace;
-    font-size: 0.9rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 3px;
+    padding: 2px 5px;
+    font-size: 0.7rem;
     flex: 1;
   }
 
   .setting-row input[type="color"] {
-    width: 40px;
-    height: 30px;
+    width: 22px;
+    height: 18px;
     border: none;
-    border-radius: 4px;
+    border-radius: 2px;
     cursor: pointer;
   }
 
   .setting-row input[type="range"] {
     flex: 1;
-    accent-color: #d4a574;
+    accent-color: var(--accent);
   }
 
   .setting-row input[type="checkbox"] {
-    accent-color: #d4a574;
-    margin-right: 8px;
+    accent-color: var(--accent);
+    margin-right: 2px;
   }
 
   .setting-row select {
@@ -3036,126 +3508,122 @@
   .setting-row input:focus,
   .setting-row select:focus {
     outline: none;
-    border-color: #d4a574;
-    box-shadow: 0 0 5px rgba(212, 165, 116, 0.3);
+    border-color: var(--accent);
   }
 
   .file-section {
-    margin-bottom: 20px;
+    margin-bottom: 6px;
   }
 
   .file-select-btn {
-    background: #6b4423;
-    color: #f5e6d3;
-    border: 2px solid #8b6f47;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-family: 'DotGothic16', monospace;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: background 0.15s;
   }
 
   .file-select-btn:hover:not(:disabled) {
-    background: #8b6f47;
-    border-color: #d4a574;
+    background: var(--accent-hover);
   }
 
   .file-select-btn:disabled {
-    background: #4a4a4a;
-    border-color: #666;
+    opacity: 0.5;
     cursor: not-allowed;
-    opacity: 0.6;
   }
 
   .file-info {
-    margin-top: 10px;
-    color: #d4a574;
+    margin-top: 4px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
   }
 
-  /* Loading Progress Styles */
   .loading-progress {
-    margin-top: 15px;
-    padding: 10px;
-    background: #2a2a2a;
-    border: 1px solid #444;
-    border-radius: 6px;
+    margin-top: 4px;
+    padding: 4px 6px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-light);
+    border-radius: 3px;
+    font-size: 0.7rem;
   }
 
   .progress-bar {
     width: 100%;
-    height: 8px;
-    background: #444;
-    border-radius: 4px;
+    height: 4px;
+    background: var(--border-light);
+    border-radius: 2px;
     overflow: hidden;
-    margin-bottom: 8px;
+    margin-bottom: 2px;
   }
 
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #6b4423, #8b6f47, #d4a574);
-    border-radius: 4px;
-    transition: width 0.3s ease;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.2s ease;
   }
 
   .progress-text {
-    font-size: 12px;
-    color: #d4a574;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
     text-align: center;
-    font-family: 'DotGothic16', monospace;
   }
 
   .debug-info {
-    margin-top: 8px;
-    color: #8b6f47;
-    font-size: 0.8rem;
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 0.7rem;
   }
 
   /* File List */
   .file-list-section {
-    margin-bottom: 20px;
+    margin-bottom: 10px;
   }
 
   .file-list-section h4 {
-    margin: 0 0 12px 0;
-    color: #d4a574;
-    font-size: 1rem;
-    border-bottom: 1px solid #6b4423;
-    padding-bottom: 5px;
+    margin: 0 0 6px 0;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 4px;
   }
 
   .file-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-height: 200px;
+    gap: 4px;
+    max-height: 140px;
     overflow-y: auto;
   }
 
   .file-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px;
-    background: #2a2419;
-    border: 1px solid #6b4423;
-    border-radius: 6px;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: border-color 0.15s, background 0.15s;
   }
 
   .file-item:hover {
-    background: #3e3429;
-    border-color: #d4a574;
+    border-color: var(--accent);
   }
 
   .file-item.selected {
-    background: #4a3f2f;
-    border-color: #d4a574;
-    box-shadow: 0 0 8px rgba(212, 165, 116, 0.3);
+    border-color: var(--accent);
+    background: var(--accent-bg);
   }
 
   .file-icon {
-    font-size: 1.5rem;
+    font-size: 1.1rem;
     flex-shrink: 0;
   }
 
@@ -3165,10 +3633,10 @@
   }
 
   .file-name {
-    font-weight: bold;
-    color: #f5e6d3;
-    font-size: 0.9rem;
-    margin-bottom: 4px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    margin-bottom: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3176,62 +3644,33 @@
 
   .file-meta {
     display: flex;
-    gap: 8px;
-    font-size: 0.8rem;
-    color: #c4a57b;
+    gap: 6px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
   }
 
   .file-type {
-    background: #6b4423;
-    color: #f5e6d3;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-size: 0.7rem;
-    font-weight: bold;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 0.65rem;
+    font-weight: 500;
   }
 
-  .file-size {
-    color: #c4a57b;
-  }
-
+  .file-size,
   .file-duration {
-    color: #d4a574;
-    font-weight: bold;
-  }
-
-  .remove-file-btn {
-    background: #c75450;
-    color: white;
-    border: none;
-    border-radius: 3px;
-    width: 20px;
-    height: 20px;
-    cursor: pointer;
-    font-size: 1rem;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .remove-file-btn:hover {
-    background: #b04542;
+    color: var(--text-muted);
   }
 
   .empty-files {
     text-align: center;
-    color: #f5e6d3;
-    padding: 20px;
-    background: #4a6b5a;
-    border: 2px dashed #628878;
-    border-radius: 8px;
-    transition: all 0.3s ease;
-  }
-
-  .empty-files:hover {
-    border-color: #7aa088;
-    background: #5a7b6a;
+    color: var(--text-muted);
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border: 1px dashed var(--border-color);
+    border-radius: 4px;
+    font-size: 0.8rem;
   }
 
   .empty-files p {
@@ -3239,27 +3678,62 @@
   }
 
   .empty-files .hint {
-    font-size: 0.9rem;
-    margin-top: 8px;
-    color: #8b6f47;
+    font-size: 0.75rem;
+    margin-top: 4px;
   }
 
   .preview-canvas-container {
-    flex: 1;
-    background: #2a2419;
-    border: 2px solid #6b4423;
-    border-radius: 8px;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    background: var(--canvas-bg);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
     position: relative;
     overflow: hidden;
-    min-height: 300px;
     cursor: crosshair;
   }
 
+  /* 出力範囲の枠（キャンバス・ラベルの下に描画し、上に重ならないようにする） */
+  .preview-output-frame {
+    border: none;
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+
+  .preview-output-label {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    padding: 4px 6px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    pointer-events: none;
+  }
+
+  .preview-output-aspect {
+    font-weight: 600;
+  }
+
+  .preview-output-resolution {
+    font-size: 0.65rem;
+    opacity: 0.9;
+  }
+
   .preview-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
-    position: relative;
-    min-height: 300px;
+    z-index: 1;
   }
 
   .visualization-canvas {
@@ -3277,42 +3751,104 @@
     justify-content: center;
     align-items: center;
     height: 100%;
-    color: #c4a57b;
+    color: var(--text-muted);
     text-align: center;
+    font-size: 0.8rem;
   }
 
   .empty-preview p:first-child {
-    font-size: 1.5rem;
-    margin-bottom: 10px;
+    font-size: 1.1rem;
+    margin-bottom: 6px;
   }
 
   .layer-preview {
     position: absolute;
-    background: rgba(139, 111, 71, 0.9);
-    border: 2px solid #d4a574;
-    border-radius: 8px;
+    background: var(--bg-panel);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
     cursor: move;
-    transition: all 0.3s ease;
-    min-width: 80px;
-    min-height: 60px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    min-width: 60px;
+    min-height: 44px;
     z-index: 10;
     user-select: none;
   }
 
   .layer-preview:hover {
-    border-color: #f5e6d3;
-    box-shadow: 0 0 15px rgba(212, 165, 116, 0.5);
+    border-color: var(--accent-hover);
+    box-shadow: var(--shadow-sm);
   }
 
   .layer-preview.selected {
-    border-color: #f5e6d3;
-    box-shadow: 0 0 20px rgba(212, 165, 116, 0.8);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-bg);
+  }
+
+  .layer-resize-handle {
+    position: absolute;
+    z-index: 5;
+    background: var(--accent);
+    pointer-events: auto;
+  }
+  .layer-resize-handle.n {
+    top: -4px;
+    left: 8px;
+    right: 8px;
+    height: 8px;
+    cursor: n-resize;
+  }
+  .layer-resize-handle.s {
+    bottom: -4px;
+    left: 8px;
+    right: 8px;
+    height: 8px;
+    cursor: s-resize;
+  }
+  .layer-resize-handle.e {
+    top: 8px;
+    right: -4px;
+    width: 8px;
+    bottom: 8px;
+    cursor: e-resize;
+  }
+  .layer-resize-handle.w {
+    top: 8px;
+    left: -4px;
+    width: 8px;
+    bottom: 8px;
+    cursor: w-resize;
+  }
+  .layer-resize-handle.ne {
+    top: -4px;
+    right: -4px;
+    width: 12px;
+    height: 12px;
+    cursor: ne-resize;
+  }
+  .layer-resize-handle.nw {
+    top: -4px;
+    left: -4px;
+    width: 12px;
+    height: 12px;
+    cursor: nw-resize;
+  }
+  .layer-resize-handle.se {
+    bottom: -4px;
+    right: -4px;
+    width: 12px;
+    height: 12px;
+    cursor: se-resize;
+  }
+  .layer-resize-handle.sw {
+    bottom: -4px;
+    left: -4px;
+    width: 12px;
+    height: 12px;
+    cursor: sw-resize;
   }
 
   .layer-preview.dragging {
-    transform: scale(1.05);
-    box-shadow: 0 0 25px rgba(212, 165, 116, 1);
-    border-color: #f5e6d3;
+    box-shadow: var(--shadow-md);
   }
 
   .layer-preview.invisible {
@@ -3320,24 +3856,23 @@
   }
 
   .layer-preview-header {
-    background: rgba(42, 36, 25, 0.9);
-    padding: 8px 12px;
-    border-bottom: 1px solid #6b4423;
+    background: var(--bg-tertiary);
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border-light);
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
 
   .layer-preview-name {
-    font-size: 0.9rem;
-    color: #d4a574;
-    font-weight: bold;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    font-weight: 600;
   }
 
-
   .layer-preview-content {
-    padding: 15px;
-    height: calc(100% - 40px);
+    padding: 8px;
+    height: calc(100% - 28px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3347,58 +3882,68 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    color: #c4a57b;
-    font-size: 0.9rem;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
   }
 
   .layer-placeholder span {
     text-transform: capitalize;
   }
 
-  /* Progress Bar */
   .progress-section {
-    margin-top: 20px;
+    margin-top: 8px;
   }
 
-  .progress-bar {
-    width: 100%;
-    height: 8px;
-    background: #6b4423;
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 8px;
+  /* File list remove button */
+  .file-item .remove-file-btn {
+    background: #c75450;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
   }
 
-  .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #8b6f47, #d4a574);
-    transition: width 0.3s ease;
+  .file-item .remove-file-btn:hover {
+    background: #b04542;
   }
 
-  .progress-text {
-    color: #d4a574;
-    font-size: 0.9rem;
-    text-align: center;
-  }
-
-  /* Responsive Design */
-  @media (max-width: 1400px) {
+  /* Responsive: stack panels */
+  @media (max-width: 1200px) {
     .composer-main {
       flex-direction: column;
     }
-    
+
+    .resizer {
+      width: 100%;
+      height: 6px;
+      cursor: row-resize;
+    }
+
     .modes-panel,
     .layers-panel,
     .files-panel {
-      width: 100%;
-      height: 200px;
+      width: 100% !important;
+      max-width: none !important;
+      max-height: 160px;
       flex-shrink: 0;
     }
-    
+
     .preview-panel {
       flex: 1;
       min-height: 0;
+    }
+
+    .preview-aspect-wrapper {
+      max-height: 100%;
     }
   }
 </style>

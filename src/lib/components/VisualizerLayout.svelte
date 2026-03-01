@@ -1,7 +1,6 @@
 <script lang="ts">
   import '../styles/common.css';
-  
-  // Props
+
   export let title: string;
   export let children: any;
   export let showProgress = false;
@@ -10,8 +9,7 @@
   export let convertingFormat = '';
 </script>
 
-<h1>{title}</h1>
-
+<!-- タイトルはレイアウトのヘッダーで表示するため、ここではプレビュー内のラベルのみ -->
 <div class="input-section">
   <slot name="input" />
 </div>

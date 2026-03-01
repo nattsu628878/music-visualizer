@@ -2,16 +2,10 @@
   // Main page: Navigation to each visualization feature
 </script>
 
-<svelte:head>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
-</svelte:head>
-
-<div class="container">
+<div class="home">
   <header class="page-header">
     <h1>Music Visualizer</h1>
-    <p class="subtitle">Comprehensive Audio & MIDI Visualization Platform</p>
+    <p class="subtitle">Audio & MIDI ビジュアライゼーション</p>
   </header>
 
   <!-- Multi-View Composer Section (Special Feature) -->
@@ -339,193 +333,170 @@
 </div>
 
 <style>
-  :global(body) {
-    margin: 0;
-    padding: 20px;
-    background-color: #628878;
-    color: #f5e6d3;
-    font-family: "DotGothic16", sans-serif;
-  }
-
-  .container {
-    max-width: 1400px;
+  .home {
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 20px;
   }
 
-  /* Page Header */
   .page-header {
     text-align: center;
-    margin-bottom: 50px;
-    padding: 30px 20px;
-    background: linear-gradient(135deg, #3e3429 0%, #2a2419 100%);
-    border-radius: 16px;
-    border: 2px solid #6b4423;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    margin-bottom: 2rem;
+    padding: 1.5rem 1rem;
+    background: var(--accent-bg);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
   }
 
-  h1 {
-    margin: 0 0 15px 0;
-    color: #f5e6d3;
-    font-size: 3em;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+  .page-header h1 {
+    margin: 0 0 0.35rem 0;
+    color: var(--accent);
+    font-size: 1.75rem;
+    font-weight: 600;
   }
 
   .subtitle {
     margin: 0;
-    color: #d4a574;
-    font-size: 1.2em;
-    opacity: 0.9;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
   }
 
-  /* Category Section */
   .category-section {
-    margin-bottom: 40px;
-    padding: 25px;
-    background: #3e3429;
-    border-radius: 12px;
-    border: 2px solid #6b4423;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    margin-bottom: 1.5rem;
+    padding: 1.25rem;
+    background: var(--bg-panel);
+    border-radius: 8px;
+    border: 1px solid var(--border-light);
   }
 
   .category-section.featured {
-    background: linear-gradient(135deg, #4a3f32 0%, #3e3429 100%);
-    border: 2px solid #d4a574;
-    box-shadow: 0 4px 16px rgba(212, 165, 116, 0.3);
+    border-color: var(--accent);
+    background: var(--accent-bg);
   }
 
   .category-header {
     display: flex;
     align-items: center;
-    gap: 15px;
-    margin-bottom: 25px;
-    padding-bottom: 15px;
-    border-bottom: 2px solid #6b4423;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .category-icon {
-    font-size: 2.5em;
+    font-size: 1.5rem;
     line-height: 1;
   }
 
   .category-header h2 {
-    color: #d4a574;
+    color: var(--text-primary);
     margin: 0;
-    font-size: 1.8em;
+    font-size: 1.15rem;
+    font-weight: 600;
     flex-grow: 1;
   }
 
   .category-badge {
-    background: #8b6f47;
-    color: #f5e6d3;
-    padding: 6px 16px;
-    border-radius: 20px;
-    font-size: 0.9em;
-    font-weight: bold;
-    letter-spacing: 0.5px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 0.25rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
   }
 
   .category-badge.special {
-    background: linear-gradient(135deg, #d4a574 0%, #a67c52 100%);
-    color: #2a2419;
-    font-weight: bold;
-    box-shadow: 0 2px 6px rgba(212, 165, 116, 0.4);
+    background: var(--accent);
+    color: #fff;
   }
 
-  /* Card Grid */
   .card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
   }
 
-  /* Card Styles */
   .card {
-    background: #2a2419;
-    padding: 25px;
-    border-radius: 10px;
-    border: 2px solid #6b4423;
+    background: var(--bg-secondary);
+    padding: 1.25rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-light);
     text-decoration: none;
-    color: #f5e6d3;
-    transition: all 0.3s ease;
+    color: var(--text-primary);
+    transition: all 0.2s;
     cursor: pointer;
-    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
     position: relative;
     display: flex;
     flex-direction: column;
-    min-height: 200px;
+    min-height: 140px;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
-    border-color: #d4a574;
-    background: #332b1f;
+    border-color: var(--accent);
+    box-shadow: var(--shadow-md);
+  }
+
+  .card:active {
+    transform: scale(0.99);
   }
 
   .card.coming-soon {
-    opacity: 0.65;
+    opacity: 0.7;
     cursor: default;
   }
 
   .card.coming-soon:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
-    border-color: #8b6f47;
-    background: #2a2419;
+    border-color: var(--border-light);
+    box-shadow: none;
   }
 
   .card-icon {
-    font-size: 2.5em;
+    font-size: 1.75rem;
     text-align: center;
-    margin-bottom: 12px;
+    margin-bottom: 0.5rem;
   }
 
   .card h3 {
-    color: #d4a574;
-    margin: 0 0 8px 0;
-    font-size: 1.4em;
+    color: var(--text-primary);
+    margin: 0 0 0.25rem 0;
+    font-size: 1.05rem;
+    font-weight: 600;
     text-align: center;
   }
 
   .card-subtitle {
-    margin: 0 0 12px 0;
+    margin: 0 0 0.5rem 0;
     text-align: center;
-    font-size: 0.95em;
-    color: #b39674;
-    font-weight: normal;
+    font-size: 0.85rem;
+    color: var(--text-muted);
   }
 
   .description {
     margin: 0;
-    font-size: 0.9em;
-    color: #c4a57b;
-    line-height: 1.6;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
     text-align: center;
     flex-grow: 1;
   }
 
   .badge {
     position: absolute;
-    top: 12px;
-    right: 12px;
-    background: #8b6f47;
-    color: #f5e6d3;
-    padding: 5px 12px;
-    border-radius: 20px;
-    font-size: 0.75em;
-    font-weight: bold;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    top: 0.5rem;
+    right: 0.5rem;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 500;
   }
 
   .badge.in-development {
-    background: #d4a574;
-    color: #2a2419;
-    animation: pulse 2s ease-in-out infinite;
+    background: var(--accent-bg);
+    color: var(--accent);
   }
 
-
-  /* Composer Card Styles */
   .composer-card {
     margin: 0;
   }
@@ -533,197 +504,91 @@
   .composer-link {
     display: flex;
     align-items: center;
-    gap: 30px;
-    padding: 40px;
-    background: linear-gradient(135deg, #2a2419 0%, #3e3429 100%);
-    border: 3px solid #d4a574;
-    border-radius: 16px;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    background: var(--bg-panel);
+    border: 2px solid var(--accent);
+    border-radius: 8px;
     text-decoration: none;
-    color: #f5e6d3;
-    transition: all 0.4s ease;
-    box-shadow: 0 6px 20px rgba(212, 165, 116, 0.2);
+    color: var(--text-primary);
+    transition: all 0.2s;
     position: relative;
-    overflow: hidden;
-  }
-
-  .composer-link::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-    transition: left 0.6s ease;
-  }
-
-  .composer-link:hover::before {
-    left: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .composer-link:hover {
-    transform: translateY(-8px);
-    box-shadow: 0 12px 30px rgba(212, 165, 116, 0.4);
-    border-color: #ffd700;
+    border-color: var(--accent-hover);
+    box-shadow: var(--shadow-md);
   }
 
   .composer-icon {
-    font-size: 4em;
+    font-size: 2.5rem;
     flex-shrink: 0;
-    text-align: center;
-    min-width: 100px;
-  }
-
-  .composer-content {
-    flex: 1;
   }
 
   .composer-content h3 {
-    margin: 0 0 10px 0;
-    color: #d4a574;
-    font-size: 2.2em;
-    font-weight: bold;
+    margin: 0 0 0.35rem 0;
+    color: var(--accent);
+    font-size: 1.25rem;
+    font-weight: 600;
   }
 
   .composer-subtitle {
-    margin: 0 0 15px 0;
-    color: #b39674;
-    font-size: 1.1em;
-    font-weight: 500;
+    margin: 0 0 0.5rem 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
   }
 
   .composer-description {
-    margin: 0 0 20px 0;
-    color: #c4a57b;
-    font-size: 1.05em;
-    line-height: 1.6;
+    margin: 0 0 0.75rem 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
   }
 
   .composer-features {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 0.5rem;
   }
 
   .feature-tag {
-    background: linear-gradient(135deg, #8b6f47, #d4a574);
-    color: #2a2419;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 0.85em;
-    font-weight: bold;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    background: var(--accent-bg);
+    color: var(--accent);
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
   }
 
   .composer-arrow {
-    font-size: 2.5em;
-    color: #d4a574;
+    font-size: 1.25rem;
+    color: var(--accent);
     flex-shrink: 0;
-    transition: transform 0.3s ease;
-  }
-
-  .composer-link:hover .composer-arrow {
-    transform: translateX(10px);
   }
 
   @keyframes pulse {
-    0%, 100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.7;
-    }
-  }
-
-  /* Responsive Design */
-  @media (max-width: 1200px) {
-    .card-grid {
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
   }
 
   @media (max-width: 768px) {
-    .container {
-      padding: 15px;
-    }
-
-    h1 {
-      font-size: 2.2em;
-    }
-
-    .subtitle {
-      font-size: 1em;
-    }
-
     .page-header {
-      padding: 25px 15px;
-      margin-bottom: 30px;
+      padding: 1.25rem 1rem;
+      margin-bottom: 1.5rem;
     }
 
-    .category-section {
-      padding: 20px;
-      margin-bottom: 30px;
-    }
-
-    .category-header h2 {
-      font-size: 1.5em;
-    }
-
-    .category-icon {
-      font-size: 2em;
+    .page-header h1 {
+      font-size: 1.5rem;
     }
 
     .card-grid {
       grid-template-columns: 1fr;
-      gap: 15px;
     }
 
-    .card {
-      min-height: 180px;
-    }
-
-    /* Composer responsive */
     .composer-link {
       flex-direction: column;
       text-align: center;
-      gap: 20px;
-      padding: 30px 20px;
-    }
-
-    .composer-icon {
-      font-size: 3em;
-      min-width: auto;
-    }
-
-    .composer-content h3 {
-      font-size: 1.8em;
-    }
-
-    .composer-description {
-      font-size: 1em;
-    }
-
-    .composer-features {
-      justify-content: center;
-    }
-
-    .composer-arrow {
-      font-size: 2em;
-    }
-  }
-
-  @media (max-width: 480px) {
-    h1 {
-      font-size: 1.8em;
-    }
-
-    .category-header {
-      flex-wrap: wrap;
-    }
-
-    .category-badge {
-      order: -1;
-      margin-left: auto;
     }
   }
 </style>

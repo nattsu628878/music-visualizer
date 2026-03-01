@@ -347,15 +347,7 @@
   }
 </script>
 
-<svelte:head>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
-</svelte:head>
-
 <div class="container">
-  <h1>Spectrogram Analyzer</h1>
-  
   <div class="input-section">
     <input
       type="file"
@@ -504,9 +496,8 @@
   :global(body) {
     margin: 0;
     padding: 20px;
-    background-color: #628878;
-    color: #f5e6d3;
-    font-family: "DotGothic16", sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
   }
 
   .container {
@@ -518,7 +509,7 @@
   h1 {
     text-align: center;
     margin-bottom: 20px;
-    color: #f5e6d3;
+    color: var(--text-primary);
   }
 
   .input-section {
@@ -533,12 +524,12 @@
     padding: 10px 20px;
     margin: 10px 0;
     background-color: #5a7a6a;
-    color: #f5e6d3;
+    color: var(--text-primary);
     border: none;
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.3s ease;
-    font-family: "DotGothic16", sans-serif;
+    font-family: inherit;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     text-decoration: none;
     display: inline-block;
@@ -551,15 +542,15 @@
   }
 
   .preview {
-    background: #3e3429;
+    background: var(--bg-panel);
     padding: 15px;
     border-radius: 8px;
-    border: 1px solid #6b4423;
+    border: 1px solid var(--border-color);
   }
 
   .preview h3 {
     margin-bottom: 10px;
-    color: #d4a574;
+    color: var(--accent);
     text-align: center;
   }
 
@@ -572,11 +563,11 @@
   }
 
   .settings {
-    background: #3e3429;
+    background: var(--bg-panel);
     padding: 20px;
     border-radius: 8px;
     transition: opacity 0.3s ease;
-    border: 1px solid #6b4423;
+    border: 1px solid var(--border-color);
     height: fit-content;
   }
 
@@ -587,9 +578,9 @@
   .settings h3 {
     margin: 0 0 15px 0;
     padding-bottom: 10px;
-    color: #d4a574;
-    font-family: "DotGothic16", sans-serif;
-    border-bottom: 1px solid #6b4423;
+    color: var(--accent);
+    font-family: inherit;
+    border-bottom: 1px solid var(--border-color);
   }
 
   .setting-group {
@@ -622,10 +613,10 @@
   input[type="number"],
   input[type="range"] {
     padding: 8px;
-    background: #2a2419;
-    border: 2px solid #6b4423;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
     border-radius: 4px;
-    color: #f5e6d3;
+    color: var(--text-primary);
     cursor: pointer;
   }
 
@@ -642,22 +633,22 @@
   }
 
   select {
-    font-family: "DotGothic16", sans-serif;
+    font-family: inherit;
     padding: 6px 10px;
-    background-color: #2a2419;
-    color: #f5e6d3;
-    border: 1px solid #6b4423;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
   }
 
   select:focus {
     outline: none;
-    border-color: #d4a574;
+    border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(212, 165, 116, 0.2);
   }
 
   label {
-    font-family: "DotGothic16", sans-serif;
+    font-family: inherit;
     display: inline-block;
     margin: 10px 0 5px 0;
     color: #e8d5c4;
@@ -674,9 +665,9 @@
     display: block;
     width: 100%;
     height: auto;
-    background-color: #2a2419;
+    background-color: var(--bg-tertiary);
     border-radius: 8px;
-    border: 2px solid #6b4423;
+    border: 2px solid var(--border-color);
   }
 
 
@@ -685,24 +676,24 @@
     justify-content: space-between;
     margin-top: 10px;
     font-size: 0.9em;
-    color: #d4a574;
+    color: var(--accent);
   }
 
   button {
     padding: 10px 20px;
     margin: 10px 0;
     background-color: #a67c52;
-    color: #f5e6d3;
+    color: var(--text-primary);
     border: none;
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.3s ease;
-    font-family: "DotGothic16", sans-serif;
+    font-family: inherit;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   }
 
   button:hover:not(:disabled) {
-    background-color: #8b6f47;
+    background-color: var(--accent-dark);
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   }
@@ -724,22 +715,22 @@
 
 
   select {
-    font-family: "DotGothic16", sans-serif;
+    font-family: inherit;
     padding: 6px 10px;
-    background-color: #2a2419;
-    color: #f5e6d3;
-    border: 1px solid #6b4423;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
   }
 
   select:focus {
     outline: none;
-    border-color: #d4a574;
+    border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(212, 165, 116, 0.2);
   }
 
   label {
-    font-family: "DotGothic16", sans-serif;
+    font-family: inherit;
     display: inline-block;
     margin: 10px 0 5px 0;
     color: #e8d5c4;
@@ -764,15 +755,15 @@
   .progress-bar {
     width: 100%;
     height: 30px;
-    background-color: #2a2419;
+    background-color: var(--bg-tertiary);
     border-radius: 15px;
     overflow: hidden;
-    border: 2px solid #6b4423;
+    border: 2px solid var(--border-color);
   }
 
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #8b6f47, #d4a574);
+    background: linear-gradient(90deg, var(--accent-dark), var(--accent));
     transition: width 0.3s ease;
     display: flex;
     align-items: center;
@@ -783,7 +774,7 @@
     text-align: center;
     margin-top: 8px;
     font-size: 1.1em;
-    color: #d4a574;
+    color: var(--accent);
     font-weight: bold;
   }
 
