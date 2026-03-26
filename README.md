@@ -1,3 +1,5 @@
+[日本語版 README](README-ja.md)
+
 # Music Visualizer - Project Overview
 
 Desktop-style web app for audio (WAV/MP3/etc.) and MIDI visualization. Load files, build multi-layer compositions, preview in real time, and export recorded videos.
