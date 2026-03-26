@@ -5,22 +5,22 @@
 <div class="home">
   <header class="page-header">
     <h1>Music Visualizer</h1>
-    <p class="subtitle">Audio & MIDI ビジュアライゼーション</p>
+    <p class="subtitle">Audio & MIDI Visualization</p>
   </header>
 
-  <!-- Multi-View Composer Section (Special Feature) -->
+  <!-- Main Feature Section -->
   <section class="category-section featured">
     <div class="category-header">
       <span class="category-icon">🎬</span>
-      <h2>Multi-View Composer</h2>
+      <h2>Music Visualizer</h2>
       <span class="category-badge special">ALL-IN-ONE</span>
     </div>
     
     <div class="composer-card">
-      <a href="/multi-view-composer" class="composer-link">
+      <div class="composer-link">
         <div class="composer-icon">🎼</div>
         <div class="composer-content">
-          <h3>Multi-View Composer</h3>
+          <h3>Music Visualizer</h3>
           <p class="composer-subtitle">Professional Composite Display</p>
           <p class="composer-description">
             Combine multiple visualizations in a single screen with drag-and-drop interface.
@@ -35,7 +35,7 @@
           </div>
         </div>
         <div class="composer-arrow">→</div>
-      </a>
+      </div>
     </div>
   </section>
   
@@ -48,7 +48,7 @@
     </div>
     
     <div class="card-grid">
-      <a href="/audio/spectrum" class="card">
+      <div class="card">
         <div class="card-icon">📊</div>
         <h3>Spectrum</h3>
         <p class="card-subtitle">Frequency Spectrum</p>
@@ -56,9 +56,9 @@
           Display audio frequency distribution as a bar chart.
           Choose from various styles: circular, line, normal, and more.
         </p>
-      </a>
+      </div>
 
-      <a href="/audio/waveform" class="card">
+      <div class="card">
         <div class="card-icon">〰️</div>
         <h3>Waveform</h3>
         <p class="card-subtitle">Time Domain</p>
@@ -66,9 +66,9 @@
           Display audio waveform in the time domain.
           Choose between line and fill display styles.
         </p>
-      </a>
+      </div>
 
-      <a href="/audio/spectrogram" class="card">
+      <div class="card">
         <div class="card-icon">🌈</div>
         <h3>Spectrogram</h3>
         <p class="card-subtitle">Time-Frequency Analysis</p>
@@ -76,9 +76,9 @@
           Analyze audio with a 2D time-frequency map.
           Choose from multiple color maps and export as an image.
         </p>
-      </a>
+      </div>
 
-      <a href="/audio/visualizer3d" class="card">
+      <div class="card">
         <div class="card-icon">🎲</div>
         <h3>3D Visualizer</h3>
         <p class="card-subtitle">3D Spectrum</p>
@@ -86,7 +86,7 @@
           Experience audio in 3D space with rotating bars.
           Choose from circular, grid, or wave arrangements.
         </p>
-      </a>
+      </div>
 
       <div class="card coming-soon">
         <div class="card-icon">✨</div>
@@ -121,7 +121,7 @@
     </div>
     
     <div class="card-grid">
-      <a href="/midi/pianoroll" class="card">
+      <div class="card">
         <div class="card-icon">🎹</div>
         <h3>Piano Roll</h3>
         <p class="card-subtitle">Classic Timeline</p>
@@ -129,9 +129,9 @@
           Display MIDI notes on a piano roll timeline.
           Visualize pitch, duration, and velocity.
         </p>
-      </a>
+      </div>
 
-      <a href="/midi/score" class="card">
+      <div class="card">
         <div class="card-icon">🎼</div>
         <h3>Score Visualizer</h3>
         <p class="card-subtitle">Musical Notation</p>
@@ -140,7 +140,7 @@
           Automatic page turns and note highlighting.
         </p>
         <span class="badge in-development">In Development</span>
-      </a>
+      </div>
 
       <div class="card coming-soon">
         <div class="card-icon">🌊</div>

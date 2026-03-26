@@ -31,7 +31,7 @@ Note: If `screen-shot.png` is missing in this repo, please add the image or upda
 | Item | Description |
 | --- | --- |
 | Entry | `src/app.html` + `src/routes/*` |
-| UI | Home (entry points) / Multi-View Composer (layer-based composition) / individual Audio & MIDI visualizers |
+| UI | Home (entry points) / Music Visualizer (layer-based composition) / individual Audio & MIDI visualizers |
 | Audio analysis | Audio is decoded and analyzed with `AudioContext` + `AnalyserNode`, then used to draw each layer |
 | Export | Recording uses `MediaRecorder` (WebM). If enabled, FFmpeg converts to formats like MP4 |
 
@@ -39,7 +39,7 @@ Note: If `screen-shot.png` is missing in this repo, please add the image or upda
 
 ## Layout
 
-### Multi-View Composer
+### Music Visualizer
 - **Modes panel**: Drag visualization modes (Audio/MIDI types) to create new layers.
 - **Layers panel**: Layer list with reordering arrows, resize handles, Opacity, and File assignment.
 - **Preview panel**: Real-time composed canvas with zoom, aspect/resolution handling.
@@ -69,7 +69,7 @@ Note: If `screen-shot.png` is missing in this repo, please add the image or upda
 - **Load**: Add Audio/MIDI files via the `Files` panel.
 - **Assign**: Assign a `File` to a layer from the layer UI.
 - **Preview/Export**:
-  - In the current Multi-View Composer implementation, preview/recording is driven by `selectedFile` decoded via `decodeAudioData` to feed analyzer data.
+  - In the current Music Visualizer implementation, preview/recording is driven by `selectedFile` decoded via `decodeAudioData` to feed analyzer data.
   - As a result, MIDI layers in this composer are currently based on the same decoded audio analyzer pipeline (rather than true MIDI note rendering). MIDI playback/visualization is handled primarily by the dedicated `/midi/pianoroll` and `/midi/score` pages.
 - **MIDI playback/analysis**: Tone.js + @tonejs/midi are used mainly in the dedicated MIDI pages.
 
@@ -80,7 +80,7 @@ Note: If `screen-shot.png` is missing in this repo, please add the image or upda
 ### Load
 - Audio files: `.wav/.mp3/.flac/.aac/.ogg`
 - MIDI files: `.mid/.midi`
-- Multi-View Composer layers are built by adding modes and composing them.
+- Music Visualizer layers are built by adding modes and composing them.
 
 ### Save (Recording / Export)
 - Recording uses `MediaRecorder` on a captured canvas stream.
@@ -93,7 +93,7 @@ Note: If `screen-shot.png` is missing in this repo, please add the image or upda
 
 | File | Role |
 | --- | --- |
-| `src/routes/multi-view-composer/+page.svelte` | Multi-View Composer implementation (layers, preview, recording/export) |
+| `src/routes/multi-view-composer/+page.svelte` | Music Visualizer implementation (layers, preview, recording/export) |
 | `src/routes/audio/*/+page.svelte` | Audio visualizers (Spectrum/Waveform/Spectrogram/3D) |
 | `src/routes/midi/*/+page.svelte` | MIDI visualizers (Piano Roll / Score) |
 | `src/routes/+page.svelte` | Home page navigation |

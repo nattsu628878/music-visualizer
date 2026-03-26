@@ -5,13 +5,15 @@
 
   let darkMode = $state(false);
   let mounted = $state(false);
+  let startupAnimating = $state(true);
 
   const showHeader = $derived(mounted);
-  const isHome = $derived($page.url.pathname === '/');
+  const showBack = $derived($page.url.pathname !== '/multi-view-composer');
 
   const pageTitle = $derived.by(() => {
     const path = $page.url.pathname;
-    if (path.startsWith('/multi-view-composer')) return 'Multi-View Composer';
+    if (path.startsWith('/multi-view-composer')) return 'Music Visualizer';
+    if (path.startsWith('/guide')) return 'Guide';
     if (path.startsWith('/audio/spectrum')) return 'Spectrum';
     if (path.startsWith('/audio/waveform')) return 'Waveform';
     if (path.startsWith('/audio/spectrogram')) return 'Spectrogram';
@@ -36,6 +38,10 @@
   onMount(() => {
     mounted = true;
     darkMode = document.documentElement.classList.contains('dark-mode');
+    const t = setTimeout(() => {
+      startupAnimating = false;
+    }, 520);
+    return () => clearTimeout(t);
   });
 
   $effect(() => {
@@ -55,19 +61,22 @@
 {#if showHeader}
   <header class="app-header">
     <div class="app-header-content">
-      {#if !isHome}
-        <a href="/" class="back-link" aria-label="ホームへ戻る">←</a>
+      {#if showBack}
+        <a href="/multi-view-composer" class="back-link" aria-label="Back to main">←</a>
       {:else}
         <span class="back-link-placeholder" aria-hidden="true"></span>
       {/if}
       <h1>{pageTitle}</h1>
-      <button type="button" class="theme-toggle" onclick={toggleTheme} title="ダークモード切り替え" aria-label="テーマ切り替え">
-        <span class="theme-icon">{darkMode ? '☀️' : '🌙'}</span>
-      </button>
+      <div class="header-actions">
+        <a href="/guide" class="guide-link" aria-label="Open guide page">Guide</a>
+        <button type="button" class="theme-toggle" onclick={toggleTheme} title="Toggle dark mode" aria-label="Toggle theme">
+          <span class="theme-icon">{darkMode ? '☀️' : '🌙'}</span>
+        </button>
+      </div>
     </div>
   </header>
 {/if}
 
-<main class="app-container" class:composer-page={isComposerPage}>
+<main class="app-container" class:composer-page={isComposerPage} class:startup-anim={startupAnimating}>
   <slot />
 </main>

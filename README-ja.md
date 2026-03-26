@@ -31,7 +31,7 @@
 | Item | Description |
 | --- | --- |
 | Entry | `src/app.html`（HTMLテンプレート） + `src/routes/*`（各ページ） |
-| UI | ホーム（各 Visualization への導線）／Multi-View Composer（レイヤー合成UI）／個別可視化（Audio/MIDI） |
+| UI | ホーム（各 Visualization への導線）／Music Visualizer（レイヤー合成UI）／個別可視化（Audio/MIDI） |
 | 音源解析 | Audioは `AudioContext` + `AnalyserNode` で周波数/波形データを生成し、各レイヤーを描画 |
 | 出力 | 録画は `MediaRecorder` で WebM を保存し、必要に応じて FFmpeg で変換 |
 
@@ -39,7 +39,7 @@
 
 ## Layout
 
-### Multi-View Composer
+### Music Visualizer
 - **Modes パネル**: Audio/MIDI の種類（例: Spectrum / Waveform / Spectrogram / 3D / Piano Roll / Score）からドラッグしてレイヤーを追加
 - **Layers パネル**: レイヤーの一覧。ドラッグで位置変更、リサイズハンドルでサイズ変更、Opacity と File の割り当て（レイヤーに紐づけ）
 - **Preview パネル**: 合成結果をキャンバス上でリアルタイム表示。ズーム/アスペクト比/解像度を調整
@@ -68,7 +68,7 @@
 ## File binding
 - **Load（読み込み）**: Audio/MIDI を `Files` パネルから追加
 - **Assign（割り当て）**: 各レイヤーに `File` を割り当てる UI を備えています
-- **Preview/Export**: Multi-View Composer のプレビュー/録画は、`selectedFile` を `decodeAudioData` して得た Audio 解析データをベースに描画します（そのため、現状の MIDI 系レイヤーは「MIDIそのもの」ではなく音声解析データを用いた疑似描画になります）
+- **Preview/Export**: Music Visualizer のプレビュー/録画は、`selectedFile` を `decodeAudioData` して得た Audio 解析データをベースに描画します（そのため、現状の MIDI 系レイヤーは「MIDIそのもの」ではなく音声解析データを用いた疑似描画になります）
 - **MIDI再生/解析**: MIDI の再生・解析（Tone.js / @tonejs/midi）は、`/midi/pianoroll` や `/midi/score` 等の個別ページで主に行います
 
 ---
@@ -77,7 +77,7 @@
 
 ### Load
 - Audioファイル（例: `.wav/.mp3/.flac/.aac/.ogg`）および MIDI（`.mid/.midi`）を読み込み
-- Multi-View Composer では Modes からレイヤーを追加して、合成を作成します
+- Music Visualizer では Modes からレイヤーを追加して、合成を作成します
 
 ### Save（録画・出力）
 - 録画は `MediaRecorder` で生成した WebM を保存します
@@ -90,7 +90,7 @@
 
 | File | Role |
 | --- | --- |
-| `src/routes/multi-view-composer/+page.svelte` | Multi-View Composer の実装（レイヤー合成UI、プレビュー、録画/出力） |
+| `src/routes/multi-view-composer/+page.svelte` | Music Visualizer の実装（レイヤー合成UI、プレビュー、録画/出力） |
 | `src/routes/audio/*/+page.svelte` | Audio 各可視化（Spectrum/Waveform/Spectrogram/3D）の個別ページ |
 | `src/routes/midi/*/+page.svelte` | MIDI 各可視化（Piano Roll / Score）の個別ページ |
 | `src/routes/+page.svelte` | ホーム画面（各可視化への導線） |

@@ -95,7 +95,11 @@ body.no-app-scroll {
   padding-top: max(1rem, var(--safe-area-top));
 }
 
-/* Multi-View Composer 用: フル高さ・余白なし・スクロール禁止 */
+.app-container.startup-anim {
+  animation: app-startup-enter 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Music Visualizer 用: フル高さ・余白なし・スクロール禁止 */
 .app-container.composer-page {
   max-width: none;
   padding: 0;
@@ -104,6 +108,19 @@ body.no-app-scroll {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+@keyframes app-startup-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
 }
 
 .app-header .back-link-placeholder {
@@ -150,21 +167,17 @@ a:hover {
   padding-top: max(0.25rem, var(--safe-area-top));
   margin-bottom: 0.5rem;
   border-bottom: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.25rem;
+  display: block;
 }
 
 .app-header-content {
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
   align-items: center;
-  position: relative;
+  column-gap: 8px;
 }
 
 .app-header h1 {
@@ -173,6 +186,16 @@ a:hover {
   font-weight: 600;
   color: var(--accent);
   letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .app-header .back-link {
@@ -201,6 +224,27 @@ a:hover {
 
 .app-header .back-link:active {
   transform: scale(0.98);
+}
+
+.guide-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.guide-link:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .theme-toggle {

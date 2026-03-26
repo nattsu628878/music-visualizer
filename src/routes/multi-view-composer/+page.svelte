@@ -178,6 +178,11 @@
     }
   ];
 
+  function getModeDisplayName(modeId: string): string {
+    const mode = visualizationModes.flatMap((category) => category.modes).find((m) => m.id === modeId);
+    return mode?.name ?? modeId;
+  }
+
   // File handling
   async function handleFileSelect() {
     try {
@@ -210,12 +215,12 @@
     try {
       isLoading = true;
       loadingProgress = 0;
-      loadingStatus = 'ファイルを読み込み中...';
+      loadingStatus = 'Loading file...';
       
       console.log('Loading file from HTML input:', file.name);
       
       loadingProgress = 20;
-      loadingStatus = 'ファイル形式を確認中...';
+      loadingStatus = 'Checking file format...';
       
       // Determine file type
       const extension = file.name.split('.').pop()?.toLowerCase();
@@ -231,13 +236,13 @@
       }
 
       loadingProgress = 40;
-      loadingStatus = 'ファイルを処理中...';
+      loadingStatus = 'Processing file...';
 
       // Create preview URL
       const preview = URL.createObjectURL(file);
       
       loadingProgress = 60;
-      loadingStatus = 'メタデータを取得中...';
+      loadingStatus = 'Loading metadata...';
       
       // Get file duration for audio files
       let duration: number | undefined;
@@ -273,7 +278,7 @@
       }
 
       loadingProgress = 80;
-      loadingStatus = 'ファイルリストを更新中...';
+      loadingStatus = 'Updating file list...';
 
       // Add to loaded files
       const fileData = {
@@ -295,7 +300,7 @@
       }
       
       loadingProgress = 100;
-      loadingStatus = '完了';
+      loadingStatus = 'Done';
       
       console.log('File loaded successfully:', file.name, 'Duration:', duration);
       
@@ -393,7 +398,7 @@
     const newLayer = {
       id: `layer-${nextLayerId++}`,
       type: type as any,
-      name: type.charAt(0).toUpperCase() + type.slice(1),
+      name: getModeDisplayName(type),
       visible: true,
       opacity: 1.0,
       x: defaultPosition.x,
@@ -472,7 +477,7 @@
     const newLayer = {
       id: `layer-${nextLayerId++}`,
       type: modeId as any,
-      name: modeId.charAt(0).toUpperCase() + modeId.slice(1),
+      name: getModeDisplayName(modeId),
       visible: true,
       opacity: 1.0,
       x: 0,
@@ -1827,7 +1832,7 @@
 </script>
 
 <svelte:head>
-  <title>Multi-View Composer - Music Visualizer</title>
+  <title>Music Visualizer</title>
 </svelte:head>
 
 <div class="multi-view-composer">
@@ -1861,7 +1866,7 @@
         {/each}
       </div>
     </div>
-    <div class="resizer" class:resizing={resizing !== null} role="separator" aria-label="リサイズ" on:mousedown={(e) => startResize('modes', e)}></div>
+    <div class="resizer" class:resizing={resizing !== null} role="separator" aria-label="Resize" on:mousedown={(e) => startResize('modes', e)}></div>
     <div class="layers-panel" style="width: {panelWidths.layers}px; min-width: {PANEL_MIN}px; max-width: {PANEL_MAX}px;">
       <div class="layers-header">
         <h3>Layers</h3>
@@ -1902,8 +1907,8 @@
             on:keydown={(e) => e.key === 'Enter' && selectLayer(layer.id)}
           >
             <div class="layer-order-btns no-layer-drag" on:click|stopPropagation={() => {}}>
-              <button type="button" class="layer-order-btn" title="上へ" disabled={index === 0} on:click|stopPropagation={() => moveLayerUp(layer.id)}>↑</button>
-              <button type="button" class="layer-order-btn" title="下へ" disabled={index === layers.length - 1} on:click|stopPropagation={() => moveLayerDown(layer.id)}>↓</button>
+              <button type="button" class="layer-order-btn" title="Move up" disabled={index === 0} on:click|stopPropagation={() => moveLayerUp(layer.id)}>↑</button>
+              <button type="button" class="layer-order-btn" title="Move down" disabled={index === layers.length - 1} on:click|stopPropagation={() => moveLayerDown(layer.id)}>↓</button>
             </div>
             <div class="layer-item-body">
               <div class="layer-item-row layer-item-head">
@@ -1913,7 +1918,7 @@
                 <button type="button" class="layer-vis-btn no-layer-drag" class:dimmed={!layer.visible} title={layer.visible ? 'Hide' : 'Show'} on:click|stopPropagation={() => updateLayerProperty(layer.id, 'visible', !layer.visible)} aria-pressed={layer.visible}>
                   <span class="layer-vis-icon">{layer.visible ? '●' : '○'}</span>
                 </button>
-                <button type="button" class="layer-remove-btn no-layer-drag" title="削除" on:click|stopPropagation={() => removeLayer(layer.id)}>×</button>
+                <button type="button" class="layer-remove-btn no-layer-drag" title="Remove" on:click|stopPropagation={() => removeLayer(layer.id)}>×</button>
               </div>
               <div class="layer-item-row layer-item-meta no-layer-drag" on:click|stopPropagation={() => {}}>
               <label class="layer-opacity-col">
@@ -1929,7 +1934,7 @@
                   <select 
                     bind:value={layer.assignedFileId}
                     on:change={() => assignFileToLayer(layer.id, layer.assignedFileId || '')}
-                    title="割り当てファイル"
+                    title="Assigned file"
                   >
                     <option value="">—</option>
                     {#each loadedFiles as file}
@@ -1937,7 +1942,7 @@
                     {/each}
                   </select>
                   {#if layer.assignedFileId}
-                    <button type="button" class="layer-unassign-btn" title="割り当て解除" on:click={() => removeFileFromLayer(layer.id)}>×</button>
+                    <button type="button" class="layer-unassign-btn" title="Unassign file" on:click={() => removeFileFromLayer(layer.id)}>×</button>
                   {/if}
                 </div>
               </div>
@@ -1953,15 +1958,15 @@
         {/if}
       </div>
     </div>
-    <div class="resizer" class:resizing={resizing !== null} role="separator" aria-label="リサイズ" on:mousedown={(e) => startResize('layers', e)}></div>
+    <div class="resizer" class:resizing={resizing !== null} role="separator" aria-label="Resize" on:mousedown={(e) => startResize('layers', e)}></div>
     <div class="preview-panel">
       <div class="preview-header">
         <h3>Preview</h3>
         <div class="preview-actions">
-          <div class="preview-zoom-controls" title="ズーム">
-            <button type="button" class="preview-zoom-btn" disabled={previewZoom <= PREVIEW_ZOOM_MIN} on:click={() => setPreviewZoom(-PREVIEW_ZOOM_STEP)} aria-label="ズームアウト">−</button>
+          <div class="preview-zoom-controls" title="Zoom">
+            <button type="button" class="preview-zoom-btn" disabled={previewZoom <= PREVIEW_ZOOM_MIN} on:click={() => setPreviewZoom(-PREVIEW_ZOOM_STEP)} aria-label="Zoom out">−</button>
             <span class="preview-zoom-value">{Math.round(previewZoom * 100)}%</span>
-            <button type="button" class="preview-zoom-btn" disabled={previewZoom >= PREVIEW_ZOOM_MAX} on:click={() => setPreviewZoom(PREVIEW_ZOOM_STEP)} aria-label="ズームイン">+</button>
+            <button type="button" class="preview-zoom-btn" disabled={previewZoom >= PREVIEW_ZOOM_MAX} on:click={() => setPreviewZoom(PREVIEW_ZOOM_STEP)} aria-label="Zoom in">+</button>
           </div>
           <!-- Preview Button -->
           <button 
@@ -2010,7 +2015,7 @@
             
             {#if layers.length === 0}
               <div class="empty-preview">
-                <p>🎬 Multi-View Composer</p>
+                <p>🎬 Music Visualizer</p>
                 <p>Drag visualization modes here to create your composition</p>
               </div>
             {:else}
@@ -2042,14 +2047,14 @@
                     </div>
                   </div>
                   {#if selectedLayer === layer.id}
-                    <div class="layer-resize-handle n" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'n')}></div>
-                    <div class="layer-resize-handle s" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 's')}></div>
-                    <div class="layer-resize-handle e" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'e')}></div>
-                    <div class="layer-resize-handle w" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'w')}></div>
-                    <div class="layer-resize-handle ne" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'ne')}></div>
-                    <div class="layer-resize-handle nw" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'nw')}></div>
-                    <div class="layer-resize-handle se" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'se')}></div>
-                    <div class="layer-resize-handle sw" title="リサイズ" on:mousedown={(e) => handleResizeStart(e, layer.id, 'sw')}></div>
+                    <div class="layer-resize-handle n" title="Resize" on:mousedown={(e) => handleResizeStart(e, layer.id, 'n')}></div>
+                    <div class="layer-resize-handle s" title="Resize" on:mousedown={(e) => handleResizeStart(e, layer.id, 's')}></div>
+                    <div class="layer-resize-handle e" title="Resize" on:mousedown={(e) => handleResizeStart(e, layer.id, 'e')}></div>
+                    <div class="layer-resize-handle w" title="Resize" on:mousedown={(e) => handleResizeStart(e, layer.id, 'w')}></div>
+                    <div class="layer-resize-handle ne" title="Resize" on:mousedown={(e) => handleResizeStart(e, layer.id, 'ne')}></div>
+                    <div class="layer-resize-handle nw" title="Resize" on:mousedown={(e) => handleResizeStart(e, layer.id, 'nw')}></div>
+                    <div class="layer-resize-handle se" title="Resize" on:mousedown={(e) => handleResizeStart(e, layer.id, 'se')}></div>
+                    <div class="layer-resize-handle sw" title="Resize" on:mousedown={(e) => handleResizeStart(e, layer.id, 'sw')}></div>
                   {/if}
                 </div>
               {/each}
@@ -2079,16 +2084,17 @@
           class="resizer resizer-settings"
           class:resizing={resizing !== null}
           role="separator"
-          aria-label="パラメータの高さを変更"
+          aria-label="Resize parameter panel height"
           on:mousedown={(e) => startResize('settings', e)}
         ></div>
 
         <!-- Settings Panel -->
         <div class="settings-panel" style="height: {settingsPanelHeight}px;">
+        <div class="settings-panel-title">Inspector</div>
         {#if isProjectLayerSelected || (!selectedLayer && !isProjectLayerSelected)}
           <!-- Global Settings -->
           <div class="settings-header">
-              <h4>Global</h4>
+              <h4>Project</h4>
           </div>
           <div class="settings-content settings-content-inline">
             <div class="setting-group">
@@ -2310,7 +2316,7 @@
                 </div>
                 <div class="setting-group">
                   <label class="setting-label">
-                    <span>波形の透明度:</span>
+                    <span>Waveform transparency:</span>
                     <input type="range" value={typeof layer.settings.waveformTransparency === 'number' ? layer.settings.waveformTransparency : (typeof layer.settings.strokeOpacity === 'number' ? 1 - layer.settings.strokeOpacity : 0)} on:input={(e) => { layer.settings.waveformTransparency = parseFloat((e.target as HTMLInputElement).value); updateLayerProperty(layer.id, 'settings', layer.settings); }} min="0" max="1" step="0.1">
                     <span>{Math.round((typeof layer.settings.waveformTransparency === 'number' ? layer.settings.waveformTransparency : (typeof layer.settings.strokeOpacity === 'number' ? 1 - layer.settings.strokeOpacity : 0)) * 100)}%</span>
                   </label>
@@ -2503,7 +2509,7 @@
       </div>
     </div>
 
-    <div class="resizer resizer-vertical" class:resizing={resizing !== null} role="separator" aria-label="リサイズ" on:mousedown={(e) => startResize('files', e)}></div>
+    <div class="resizer resizer-vertical" class:resizing={resizing !== null} role="separator" aria-label="Resize" on:mousedown={(e) => startResize('files', e)}></div>
     <div class="files-panel" style="width: {panelWidths.files}px; min-width: {PANEL_MIN}px; max-width: {PANEL_MAX}px;">
       <div class="files-header">
         <h3>Files</h3>
@@ -2532,9 +2538,6 @@
               <strong>Selected:</strong> {selectedFile.name}
             </div>
           {/if}
-          <div class="debug-info">
-            <small>Debug: Click the button above to open file dialog</small>
-          </div>
         </div>
 
         <!-- File List -->
@@ -2565,8 +2568,9 @@
                   </div>
                   <button 
                     class="remove-file-btn"
-                    on:click={() => removeFile(fileData.id)}
+                    on:click|stopPropagation={() => removeFile(fileData.id)}
                     title="Remove file"
+                    aria-label={`Remove ${fileData.name}`}
                   >
                     ×
                   </button>
@@ -2632,9 +2636,11 @@
 
   .modes-panel h3 {
     margin: 0 0 8px 0;
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     border-bottom: 1px solid var(--border-light);
     padding-bottom: 6px;
   }
@@ -2770,9 +2776,11 @@
 
   .layers-header h3 {
     margin: 0;
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   .layers-count {
@@ -3188,9 +3196,11 @@
 
   .files-header h3 {
     margin: 0;
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   .files-count {
@@ -3228,9 +3238,11 @@
 
   .preview-header h3 {
     margin: 0;
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   .export-btn,
@@ -3361,6 +3373,17 @@
     font-size: 0.75rem;
   }
 
+  .settings-panel-title {
+    margin: 0 0 6px 0;
+    padding: 0 0 4px 0;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+
   .settings-header {
     display: flex;
     justify-content: space-between;
@@ -3373,9 +3396,11 @@
 
   .settings-header h4 {
     margin: 0;
-    color: var(--text-primary);
-    font-size: 0.75rem;
-    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   .settings-type-badge {
@@ -3644,7 +3669,11 @@
 
   .file-meta {
     display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
     gap: 6px;
+    min-width: 0;
+    overflow: hidden;
     font-size: 0.7rem;
     color: var(--text-muted);
   }
@@ -3656,11 +3685,15 @@
     border-radius: 2px;
     font-size: 0.65rem;
     font-weight: 500;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .file-size,
   .file-duration {
     color: var(--text-muted);
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .empty-files {
@@ -3897,23 +3930,26 @@
 
   /* File list remove button */
   .file-item .remove-file-btn {
-    background: #c75450;
-    color: white;
-    border: none;
-    border-radius: 3px;
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
     cursor: pointer;
-    font-size: 0.8rem;
+    padding: 0;
+    flex-shrink: 0;
+    border: 1px solid var(--border-light);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    font-size: 1rem;
     line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
   }
 
   .file-item .remove-file-btn:hover {
-    background: #b04542;
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
   }
 
   /* Responsive: stack panels */
