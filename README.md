@@ -8,8 +8,6 @@ Desktop-style web app for audio (WAV/MP3/etc.) and MIDI visualization. Load file
 
 ![Music Visualizer screenshot](screen-shot.png)
 
-Note: If `screen-shot.png` is missing in this repo, please add the image or update the path.
-
 ---
 
 ## Technologies

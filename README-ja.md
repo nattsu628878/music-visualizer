@@ -8,8 +8,6 @@
 
 ![Music Visualizer screenshot](screen-shot.png)
 
-※ リポジトリ内にスクリーンショット画像が見当たらないため、`screen-shot.png` を置くかパスを変更してください。
-
 ---
 
 ## Technologies
