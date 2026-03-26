@@ -9,6 +9,7 @@ Desktop-style web app for audio (WAV/MP3/etc.) and MIDI visualization. Load file
 ## Screenshot
 
 ![Music Visualizer screenshot](screen-shot.png)
+![Music Visualizer guide screenshot](screen-shot_guide.png)
 
 ---
 

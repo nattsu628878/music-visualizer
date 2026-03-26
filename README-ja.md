@@ -7,6 +7,7 @@
 ## Screenshot
 
 ![Music Visualizer screenshot](screen-shot.png)
+![Music Visualizer guide screenshot](screen-shot_guide.png)
 
 ---
 
